@@ -1,0 +1,11 @@
+{
+  "name": "projektvpn",
+  "version": "0.0.1",
+  "dependencies": {
+    "accept-bitcoin": "0.0.9",
+    "cjdns-admin": "^0.2.0",
+    "dotenv": "^4.0.0",
+    "express": "^4.14.0",
+    "mariasql": "^0.2.6"
+  }
+}
