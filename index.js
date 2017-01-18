@@ -5,6 +5,7 @@ require('dotenv').config()
 var async = require('async')
 
 var express = require('express')
+// TODO: handlebars has better integrationa nd the nice {{#if}} syntax
 var mustacheExpress = require('mustache-express')
 var acceptBitcoin = require('accept-bitcoin')
 var cjdnsAdmin = require('cjdns-admin')
