@@ -5,8 +5,7 @@ require('dotenv').config()
 var async = require('async')
 
 var express = require('express')
-// TODO: handlebars has better integrationa nd the nice {{#if}} syntax
-var mustacheExpress = require('mustache-express')
+var expressHandlebars = require('express-handlebars')
 var acceptBitcoin = require('accept-bitcoin')
 var cjdnsAdmin = require('cjdns-admin')
 
@@ -15,10 +14,9 @@ var publicToIp6 = require('./publicToIp6')
 
 // Set up express
 var app = express()
-// Register '.mustache' extension with The Mustache Express
-app.engine('mustache', mustacheExpress());
-app.set('view engine', 'mustache');
-app.set('views', __dirname + '/views');
+// Register '.hbs' extension with Handlebars
+app.engine('handlebars', expressHandlebars({defaultLayout: 'main'}));
+app.set( 'view engine', 'handlebars' );
 
 // Set up accept-bitcoin
 var settings = {
