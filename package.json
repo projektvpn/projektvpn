@@ -2,13 +2,14 @@
   "name": "projektvpn",
   "version": "0.0.1",
   "dependencies": {
-    "accept-bitcoin": "0.0.9",
     "async": "^2.1.4",
+    "bitcore-lib": "^0.13.19",
     "cjdns-admin": "^0.2.0",
     "crypto": "0.0.3",
     "dotenv": "^4.0.0",
     "express": "^4.14.0",
     "express-handlebars": "^3.0.0",
+    "extend": "^3.0.0",
     "mariasql": "^0.2.6",
     "moment": "^2.17.1"
   }
