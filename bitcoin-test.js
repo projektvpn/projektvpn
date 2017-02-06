@@ -21,8 +21,20 @@ function sayBalance(x) {
   })
 }
 
+function sayUnspent(x) {
+  // Let's check the unspent outputs
+  acceptor.getUnspent(x, (err, values) => {
+    if (err) {
+      throw err
+    }
+    
+    console.log('Got UXTOs of', x, ': ', values)
+  })
+}
+
 // Say some balances
 sayBalance(privkey)
 sayBalance(privkey.toAddress())
 sayBalance('198aMn6ZYAczwrE5NvNTUMyJ5qkfy4g3Hi')
+sayUnspent('198aMn6ZYAczwrE5NvNTUMyJ5qkfy4g3Hi')
 

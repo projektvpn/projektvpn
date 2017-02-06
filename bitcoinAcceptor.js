@@ -3,11 +3,7 @@
 var extend = require('extend')
 var bitcore = require('bitcore-lib')
 var request = require('request')
-
-//Private
-var privateVariable = true
-
-
+var async = require('async')
 
 //Public
 module.exports = BitcoinAcceptor;
@@ -62,11 +58,11 @@ BitcoinAcceptor.prototype.generateKey = function () {
 }
 
 /**
- * Get the balance of the given private key or address, as a float in BTC. Calls the callback
- * with err on error, or null and the balance on success.
+ * Convert the given PrivateKey or Address or string to an actuall address
+ * string. Calls the callback with an error if the address given is invalid, and
+ * with null and the string otherwise.
  */
-BitcoinAcceptor.prototype.checkBalance = function (privkeyOrAddr, callback) {
-  
+BitcoinAcceptor.prototype.toAddress = function(privkeyOrAddr, callback) {
   // Decide on the real address string
   var addrString
   
@@ -82,29 +78,129 @@ BitcoinAcceptor.prototype.checkBalance = function (privkeyOrAddr, callback) {
     addrString = privkeyOrAddr
   } else {
     // What is this nonsense?
-    callback(new Error('Invalid address: ' + privkeyOrAddr))
+    return callback(new Error('Invalid address: ' + privkeyOrAddr))
   }
   
-  // Make a request to the appropriate endpoint
-  request.get(this.apiBase + '/address/info/' + addrString, (err, response, body) => {
+  callback(null, addrString)
+}
+
+/**
+ * Get the balance of the given private key or address, as a float in BTC. Calls the callback
+ * with err on error, or null and the balance on success.
+ */
+BitcoinAcceptor.prototype.checkBalance = function (privkeyOrAddr, callback) {
+  
+  // Parse the address
+  this.toAddress(privkeyOrAddr, (err, addrString) => {
     if (err) {
       return callback(err)
     }
     
-    try {
-      // Parse the returned JSON
-      body = JSON.parse(body)
+    // Make a request to the appropriate endpoint
+    var apiCall = '/address/balance/' + addrString + '?confirmations=' + this.settings.minimumConfirmations
+    request.get(this.apiBase + apiCall, (err, response, body) => {
+      if (err) {
+        return callback(err)
+      }
       
-      callback(null, body.data.balance);
+      var balance;
       
-    } catch (err) {
-      return callback(err)
-    }
-    
+      try {
+        // Parse the returned JSON
+        body = JSON.parse(body)
+        // Go look for the key we want
+        balance = body.data.balance
+      } catch (err) {
+        return callback(err)
+      }
+      
+      callback(null, balance);
+      
+    })
   })
 }
 
-
+/**
+ * Get the unspent outputs available to the given address. Calls the callback
+ * with an error if there is an error, or null and the result otherwise.
+ *
+ * Filters down to transactions with sufficient confirmations, and returns an
+ * array of Bitcore UnspentOutput objects.
+ */
+BitcoinAcceptor.prototype.getUnspent = function (privkeyOrAddr, callback) {
+  
+  // Parse the address
+  this.toAddress(privkeyOrAddr, (err, addrString) => {
+    if (err) {
+      return callback(err)
+    }
+    
+    // Make a request to the appropriate endpoint.
+    // Include unconfirmed transactions in the list if we don't need any confirmations
+    var apiCall = '/address/unspent/' + addrString + (this.settings.minimumConfirmations == 0 ? '?unconfirmed=1' : '')
+    request.get(this.apiBase + apiCall, (err, response, body) => {
+      if (err) {
+        return callback(err)
+      }
+      
+      var uxtos;
+      
+      try {
+        // Parse the returned JSON
+        body = JSON.parse(body)
+        // Result is in .data.unspent[].
+        uxtos = body.data.unspent
+      } catch (err) {
+        return callback(err)
+      }
+      
+      // Items look like:
+      // {"tx":"c653ac1e7a66117e097dd16cfd122b24b0f92060d096d8754a1e550d4c64f520",
+      //  "amount":"0.00020000",
+      //  "n":2,
+      //  "confirmations":27056,
+      //  "script":"76a914592fc3990026334c8c6fb2b9da457179cdb5c68888ac"}
+      
+      async.filter(uxtos, (item, callback) => {
+        // For each item
+        if (item.confirmations >= this.settings.minimumConfirmations) {
+          // If it has enough, keep it
+          return callback(null, true);
+        } else {
+          // If it has too few or undefined confirmations, drop it.
+          return callback(null, false);
+        }
+      }, (err, acceptableUxtos) => {
+        // Now we have just the UXTOs that are acceptable. Turn them into the right kind of objects.
+        if (err) {
+          return callback(err)
+        }
+        
+        // Now convert to UnspentOutput objects and feed the results to our
+        // callback
+        async.map(acceptableUxtos, (item, callback) => {
+          try {
+            // Convert object to UnspentOutput
+            var uxto = new bitcore.Transaction.UnspentOutput({
+              txid: item.tx,
+              vout: item.n,
+              address: addrString,
+              scriptPubKey: item.script,
+              amount: parseFloat(item.amount)
+            })
+            
+            return callback(null, uxto)
+          } catch(err) {
+            return callback(err)
+          }
+        }, callback)
+        
+      })
+      
+    })
+  })
+  
+}
 
 
 
