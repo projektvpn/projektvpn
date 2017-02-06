@@ -18,16 +18,11 @@ function BitcoinAcceptor(destination, settings = {}) {
     throw new Error('No destination address specified')
   }
   
-  this.destination = destination
-  
   // Have default settings
   this.settings = {
     network: 'test', // Can be 'test' or 'live'
-    checkTransactionEvery: (1000 * 60 * 2), // 2 minutes
-    checkBalanceTimeout: (1000 * 60 * 60),  // 60 minutes
-    checkUnspentTimeout: (1000 * 60 * 60), // 60 minutes
-    minimumConfirmations: 1,
-    txFee: 0.0001
+    minimumConfirmations: 1
+    // Fee per KB is the Bitcore default
   }
   
   // Apply custom settings over defaults
@@ -48,6 +43,9 @@ function BitcoinAcceptor(destination, settings = {}) {
     throw new Error('Invalid network: ' + this.settings.network)
   }
   
+  // Save the address all funds go to, as a Bitcore parsed Address object
+  this.destination = new bitcore.Address(destination, this.network)
+  
 }
 
 /**
@@ -58,22 +56,29 @@ BitcoinAcceptor.prototype.generateKey = function () {
 }
 
 /**
+ * Load a serialized key on the appropriate network.
+ */
+BitcoinAcceptor.prototype.loadKey = function (keyString) {
+  return new bitcore.PrivateKey(keyString, this.network)
+}
+
+/**
  * Convert the given PrivateKey or Address or string to an actuall address
  * string. Calls the callback with an error if the address given is invalid, and
  * with null and the string otherwise.
  */
-BitcoinAcceptor.prototype.toAddress = function(privkeyOrAddr, callback) {
+BitcoinAcceptor.prototype.toAddress = function (privkeyOrAddr, callback) {
   // Decide on the real address string
   var addrString
   
   if (privkeyOrAddr instanceof bitcore.PrivateKey) {
     // We got a priv key, Hide it!
-    addrString = privkeyOrAddr.toAddress().toString()
+    addrString = privkeyOrAddr.toAddress(this.network).toString()
   } else if (privkeyOrAddr instanceof bitcore.Address) {
     // We got an Address object. It would get stringified automatically but do
     // it manually.
     addrString = privkeyOrAddr.toString()
-  } else if (bitcore.Address.isValid(privkeyOrAddr)) {
+  } else if (bitcore.Address.isValid(privkeyOrAddr, this.network)) {
     // It's just a string address
     addrString = privkeyOrAddr
   } else {
@@ -88,7 +93,7 @@ BitcoinAcceptor.prototype.toAddress = function(privkeyOrAddr, callback) {
  * Get the balance of the given private key or address, as a float in BTC. Calls the callback
  * with err on error, or null and the balance on success.
  */
-BitcoinAcceptor.prototype.checkBalance = function (privkeyOrAddr, callback) {
+BitcoinAcceptor.prototype.getBalance = function (privkeyOrAddr, callback) {
   
   // Parse the address
   this.toAddress(privkeyOrAddr, (err, addrString) => {
@@ -179,9 +184,11 @@ BitcoinAcceptor.prototype.getUnspent = function (privkeyOrAddr, callback) {
         // Now convert to UnspentOutput objects and feed the results to our
         // callback
         async.map(acceptableUxtos, (item, callback) => {
+          var uxto
+          
           try {
             // Convert object to UnspentOutput
-            var uxto = new bitcore.Transaction.UnspentOutput({
+            uxto = new bitcore.Transaction.UnspentOutput({
               txid: item.tx,
               vout: item.n,
               address: addrString,
@@ -189,17 +196,96 @@ BitcoinAcceptor.prototype.getUnspent = function (privkeyOrAddr, callback) {
               amount: parseFloat(item.amount)
             })
             
-            return callback(null, uxto)
           } catch(err) {
             return callback(err)
           }
+          
+          return callback(null, uxto)
+          
         }, callback)
         
       })
       
     })
   })
+}
+
+/**
+ * Broadcast the given signed Bitcore Transaction object. Call the callback with
+ * an error if it fails, or null if it succeeds.
+ */
+BitcoinAcceptor.prototype.sendTransaction = function (transaction, callback) {
+  try {
+    var apiCall = '/tx/push'
+    // Convert transaction to hex
+    var toPost = transaction.serialize()
+    
+    // Send it and get a response
+    request.post({url: this.apiBase + apiCall, body: toPost},  (err, response, body) => {
+      if (err) {
+        return callback(err)
+      }
+    
+      // Make sure the other end liked it
+      body = JSON.parse(body)
+      
+      if (body.status != 'success') {
+        // The other end didn't like it.
+        return callback(new Error('Received bad response when posting transaction: ' + JSON.stringify(body)))
+      }
+      
+      // If we get here the other end definitely liked it. Report success.
+      return callback(null)
+    })
+    
+  } catch (err) {
+    return callback(err)
+  }
+}
+
+/**
+ * Get the unspent outputs for a privkey and sweep them all to the address
+ * specified in settings. Calls the callback with an error if it fails, or null
+ * and the amount swept in BTC if it succeeds.
+ *
+ * Will fail if there aren't enough funds in the address to pay for the
+ * transaction.
+ */
+BitcoinAcceptor.prototype.sweep = function (privkey, callback) {
+
+  this.getUnspent(privkey, (err, uxtos) => {
+    // Grab the unspent outputs for the given key
+    if(err) {
+      return callback(err)
+    }
+    
+    if (!(privkey instanceof bitcore.PrivateKey) &&
+      !bitcore.PrivateKey.isValid(privkey, this.network)) {
+      // We won't be able to sign things with something that isn't a privkey on
+      // our network.
+      return callback(new Error('Private key is not a valid private key on current network: ' + privkey))
+    }
+    
+    try {
+    
+      // Make a transaction. Don't give it any real outputs, but do tell it to
+      // send change (i.e. sweep the UXTOs).
+      var transaction = new bitcore.Transaction()
+        .from(uxtos)
+        .change(this.destination)
+        .sign(privkey)
+        
+      // Send it off
+      this.sendTransaction(transaction, callback)
+    
+    } catch (err) {
+      return callback(err)
+    }
+    
+  })
   
+  
+
 }
 
 
