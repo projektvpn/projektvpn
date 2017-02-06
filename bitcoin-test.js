@@ -8,6 +8,7 @@ var acceptor = new BitcoinAcceptor('2MyFyrSJcgkppX5aoAAdF66RevM7dcE7nFw', {
 // Make a privkey
 var privkey = acceptor.generateKey()
 // Nope, actually load a key we prepared earlier
+// Everyone testing gets to use this public private key!
 privkey = acceptor.loadKey('aa0becb1b55536d11cc2e69e2a456855714c56da7fce9537a1057a19b47c00ec')
 
 console.log("Privkey: ", privkey)

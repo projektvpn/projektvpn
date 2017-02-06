@@ -169,6 +169,20 @@ BitcoinAcceptor.prototype.btcToFiat = function (btc, exchangeRate) {
 }
 
 /**
+ * Convert the given BTC amount into an integral number of Satoshis.
+ */
+BitcoinAcceptor.prototype.btcToSatoshis = function (btc) {
+  return bitcore.Unit.fromBTC(btc).toSatoshis()
+}
+
+/**
+ * Convert the given number of Satoshis to a BTC amount.
+ */
+BitcoinAcceptor.prototype.satoshisToBtc = function (satoshis) {
+  return bitcore.Unit.fromSatoshis(satoshis).toBTC()
+}
+
+/**
  * Get the balance of the given private key or address, as a float in BTC. Calls the callback
  * with err on error, or null and the balance on success.
  */

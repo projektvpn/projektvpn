@@ -6,7 +6,7 @@ var async = require('async')
 
 var express = require('express')
 var expressHandlebars = require('express-handlebars')
-var acceptBitcoin = require('accept-bitcoin')
+var bitcoinAcceptor = require('./bitcoinAcceptor')
 var cjdnsAdmin = require('cjdns-admin')
 var moment = require('moment')
 
@@ -19,11 +19,9 @@ var app = express()
 app.engine('handlebars', expressHandlebars({defaultLayout: 'main'}));
 app.set( 'view engine', 'handlebars' );
 
-// Set up accept-bitcoin
-var accepter = new acceptBitcoin(process.env.BTC_PAYTO, {
+// Set up bitcoinAcceptor
+var acceptor = new bitcoinAcceptor(process.env.BTC_PAYTO, {
   network: process.env.BTC_NETWORK, 
-  storePath: 'generatedKeys.txt',
-  encryptPrivateKey: false,
   minimumConfirmations: 1
 })
 
@@ -49,13 +47,18 @@ function upgradeDatabase(callback) {
       paid_through DATETIME DEFAULT CURRENT_TIMESTAMP,
       active BOOL DEFAULT FALSE  
     );`,
-    // A table for associating payment destinations with accounts in case we
-    // lose one
+    // A table for associating payment destinations with accounts, for
+    // remembering and synchronizing on orders. Tracks how much was expected to
+    // be received in the given address (in satoshis), and whether it was
+    // detected and credited or not.
     `CREATE TABLE IF NOT EXISTS btc_address(
       id INT PRIMARY KEY,
       account_id INT NOT NULL,
       address VARCHAR(34) UNIQUE NOT NULL,
       privkey VARCHAR(64),
+      expected_payment BIGINT NOT NULL,
+      requested DATETIME DEFAULT CURRENT_TIMESTAMP,
+      received BOOL DEFAULT FALSE,
       FOREIGN KEY (account_id) REFERENCES account(id)
     );`,
     // A table for IPv4 networks (each has 255 IPs we can assign)
@@ -187,6 +190,33 @@ function getAccount(pubkey, callback) {
   })
 }
 
+// Look up an account by ID. Call the callback with an error, or null and the
+// returned record (which may not be in the database because it holds no non-
+// default info)
+function getAccountById(id, callback) {
+  c.query('SELECT * FROM account WHERE id = ?;', [pubkey], (err, rows) => {
+    if (err) {
+      return callback(err)
+    }
+    
+    // Pull or synthesize the record
+    var record
+    if (rows.length == 0) {
+      // Make a default record
+      record = {
+        id: null,
+        pubkey: pubkey,
+        active: false,
+        paid_through: null
+      }
+    } else {
+      // Use the record we found
+      record = rows[0]
+    }
+    callback(null, record)
+  })
+}
+
 // Get the account with the given pubkey, or create and remember one if none
 // existed before.
 function getOrCreateAccount(pubkey, callback) {
@@ -224,19 +254,144 @@ function getOrCreateAccount(pubkey, callback) {
   })
 }
 
-// Given the address of an account and an accept-bitcoin key object, add the
-// Bitcoin address to the account in our log.
-function addBtcAddress(account_id, key, callback) {
-  c.query('INSERT INTO btc_address (account_id, address, privkey) VALUES (?, ?, ?);',
-    [account_id, key.address(), key.privateKey()], (err, rows) => {
+// Given the id of an account, a Bitcore privkey, and an expected payment amount
+// in BTC, add the Bitcoin address to the account in our log.
+function addBtcAddress(account_id, key, expectedBtc, callback) {
+  c.query('INSERT INTO btc_address (account_id, address, privkey, expected_payment) VALUES (?, ?, ?, ?);',
+    [account_id, key.toAddress(), key.toString(), acceptor.btcToSatoshis(expectedBtc)], (err, rows) => {
     
     if (err) {
       return callback(err)
     }
     
-    console.log('Account #', account_id, ' associated with address ', key.address())
+    console.log('Account #', account_id, ' associated with address ', key.toAddress())
     
     callback(null)
+    
+  })
+}
+
+// Given a string bitcoin address, mark it as paid in the database. On error,
+// call the callback with the error. If the statement we ran caused the record
+// to flip from unpaid to paid, call the callback with null and true. Else call
+// it with null and false.
+function markPaid(btcAddress, callback) {
+
+  c.query('UPDATE btc_address SET received = TRUE WHERE address = ? AND received = FALSE', [btcAddress], (err, rows) => {
+    if (err) {
+      return callback(err)
+    }
+    
+    // We assume that single update statements are atomic, and only one
+    // statement trying to do this set operation will affect any rows.
+    if (rows.info.affectedRows == 1) {
+      // We're the lucky chain of callbacks that gets to actually credit them
+      // time.
+      return callback(null, true)
+    } else {
+      // Someone else already marked them as paid
+      return callback(null, false)
+    }
+  })
+  
+}
+
+// Given a BTC address record object from the database, check if the balance in
+// the key is more than was supposed to have been received. If so, go and credit
+// the account.
+function pollPaymentRequest(btcAddressRecord, callback) {
+
+  // Unpack the database record
+  var address = btcAddressRecord.address
+  var privkey = btcAddressRecord.privkey
+  var expectedBtc = acceptor.satoshisToBtc(btcAddressRecord.requested_payment)
+  var accountId = btcAddressRecord.account_id
+
+  // Set up a handler for the actual payment
+  acceptor.getBalance(address, (err, balance) => {
+    if (err) {
+      return callback(err)
+    }
+  
+    console.log('Address ', address, ' has balance ', amount)
+    
+    if (balance >= expectedBtc) {
+      // They paid enough
+      console.log('Address ', address, ' has sufficient balance.')
+
+      // Get the account we will need to credit
+      getAccountById(accountId, (err, account) => {
+      
+        if (err) {
+          return callback(err)
+        }
+      
+        // Collect all the money
+        acceptor.sweep(privkey, (err, transfered) => {
+          if (err) {
+            return callback(err)
+          }
+          
+          console.log('Sent ', transfered, ' BTC from ', address)
+          
+          markPaid(address, (err, have_lock) => {
+            // Update the database to reflect payment. This may be called multiple
+            // times, but will only actually call its callback with true once.
+            
+            if (err) {
+              return callback(err)
+            }
+            
+            if (!have_lock) {
+              // Someone else already marked it paid and must have credited the
+              // account.
+              return callback(null)
+            }
+            
+            // Otherwise we have the lock so we have to credit the account. TODO: If
+            // we die here, the account might not be credited but we still have the
+            // money.
+            
+            // Consider them paid up.
+            addTime(account, (err) => {
+              if (err) {
+                return callback(err)
+              }
+              
+              // TODO: tell the user they're paid up
+              
+            })
+          })
+          
+        })
+      })
+      
+    }
+  })
+}
+
+// Poll all the payment requests.
+function pollAllPaymentRequests() {
+  c.query('SELECT * FROM btc_address WHERE received = FALSE', (err, rows) => {
+    // TODO: only look at the ones that aren't too old.
+    
+    console.log('Polling ' + rows.length + ' invoices...')
+    
+    async.eachSeries(rows, (row, callback) => {
+      // Try each request and see if it's done
+      pollPaymentRequest(row, callback)
+    }, (err) => {
+      if (err) {
+        // Something broke
+        throw err;
+      }
+      
+      console.log('Polled ' + rows.length + ' invoices successfully')
+      
+      // Schedule this to happen again
+      setTimeout(pollAllPaymentRequests, 1000 * 60 * 2)
+    })
+    
     
   })
 }
@@ -292,7 +447,7 @@ function activateAccount(account, callback) {
 }
 
 // This function calls the callback with an error if the given key is not a
-// valid pubkey, and with null and the IP address if it is.
+// valid cjdns pubkey, and with null and the IP address if it is.
 function parsePubkey(pubkey, callback) {
   try {
     var ip6 = publicToIp6.convert(pubkey)
@@ -368,6 +523,9 @@ app.post('/account/:pubkey/invoice', function (req, res) {
       if (err) {
         throw err
       }
+      
+      // TODO: If they already have a non-expired invoice, maybe extend its
+      // expiration or something. Or just go to it.
     
       // Calculate a price quote in BTC for this transaction
       getMonthlyPrice((err, monthlyPrice) => {
@@ -375,58 +533,22 @@ app.post('/account/:pubkey/invoice', function (req, res) {
           throw err
         }
         
-        // Make a bitcoin key to accept payment
-        var btcKey = accepter.generateAddress({alertWhenHasBalance: true})
+        // Make a private key to accept payment
+        var btcKey = acceptor.generateKey()
         
         // Log it in the database
-        addBtcAddress(account.id, btcKey, (err) => {
+        addBtcAddress(account.id, btcKey, monthlyPrice, (err) => {
         
           if (err) {
             throw err
           }
-          
-          // Set up a handler for the actual payment
-          key.on('hasBalance', (amount) => {
-            console.log('Key ', key.address(), ' has balance ', amount)
-            key.transferBalanceToMyAccount((err, reply) => {
-              if (err) {
-                throw err
-              }
-              if (reply.status != 'success') {
-                throw Error("Unsuccessful response: " + JSON.stringify(reply))
-              }
-              
-              console.log('Sent funds from ', key.address())
-              
-              // If we get here the payment was successful. But was it enough?
-              if (amount >= monthlyPrice) {
-                // Yep!
-                
-                // TODO: calculate how to add more than 1 month if they overpaid
-                
-                addTime(account, (err) => {
-                  if (err) {
-                    throw err
-                  }
-                  
-                  // TODO: tell the user they're paid up
-                  
-                })
-              } else {
-              
-                // TODO: send a message or something (return the private key?) if they underpaid
-              
-              }
-              
-            })
-          })
           
           // Now that we can take payment, tell the client
           return res.render('invoice', {
             title: "Invoice",
             account: account,
             monthlyPrice: monthlyPrice,
-            btcAddress: key.address()
+            btcAddress: key.toAddress()
           })
           
         })
@@ -435,6 +557,18 @@ app.post('/account/:pubkey/invoice', function (req, res) {
     
   })
 })
+
+// And a page to refresh and watch an invoice to see if it has been paid
+app.get('/invoice/:address', function (req, res) {
+
+  // TODO: implement
+
+  getAccountById(btcAddress.account_id, (err, account) => {
+  })
+  
+})
+
+
 
 // Now here's the app startup
 
@@ -446,6 +580,10 @@ async.series([upgradeDatabase, setupDefaultConfig], (err) => {
   }
   // Then start the app
   app.listen(3000, 'localhost', () => {
+     
+    // Make sure to schedule our cron jobs
+    setTimeout(pollAllPaymentRequests, 1000 * 60 * 2)
+  
     // Then tell the user
     console.log('Example app listening on port 3000!')
     
