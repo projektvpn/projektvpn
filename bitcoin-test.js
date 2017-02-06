@@ -1,7 +1,8 @@
 var BitcoinAcceptor = require('./bitcoinAcceptor')
 
 var acceptor = new BitcoinAcceptor('2MyFyrSJcgkppX5aoAAdF66RevM7dcE7nFw', {
-  network: 'test'
+  network: 'test',
+  minimumConfirmations: 1
 })
 
 // Make a privkey
@@ -40,9 +41,40 @@ function sayUnspent(x) {
 //sayBalance('198aMn6ZYAczwrE5NvNTUMyJ5qkfy4g3Hi')
 //sayUnspent('198aMn6ZYAczwrE5NvNTUMyJ5qkfy4g3Hi')
 
-acceptor.getBalance(privkey, (err, value) => {
-  acceptor.sweep(privkey, (err) => {
+acceptor.getExchangeRate((err, rate) => {
+  
+  if (err) {
     throw err
+  }
+  
+  console.log('Current exchange rate: $' + rate + ' per BTC')
+  
+  var fiatPrice = 20
+  var btcPrice = acceptor.fiatToBtc(fiatPrice, rate)
+  console.log('Please pay $' + fiatPrice + ' = ' + btcPrice + ' BTC to ' + privkey.toAddress())
+
+  acceptor.getBalance(privkey, (err, balance) => {
+    
+    if (balance >= btcPrice) {
+  
+      console.log('Found ' + balance + ' BTC >=' + btcPrice + ' BTC. Sweeping...')
+      
+      // TODO: this is where we would provide the service, so that if our system
+      // goes down before moving the funds it's on us.
+  
+      acceptor.sweep(privkey, (err, amount) => {
+        if (err) {
+          console.log('Unable to collect funds due to: ' + err)
+        } else {
+          // Transactiuon sent!
+          // Convert back to fiat
+          var fiatAmount = acceptor.btcToFiat(amount, rate)
+          console.log('Actually collected ' + amount + ' BTC = $' + fiatAmount)
+        }
+      })
+    } else {
+      console.log('Currently have only ' + balance + ' BTC')
+    }
   })
 })
 

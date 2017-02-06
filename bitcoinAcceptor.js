@@ -21,7 +21,8 @@ function BitcoinAcceptor(destination, settings = {}) {
   // Have default settings
   this.settings = {
     network: 'test', // Can be 'test' or 'live'
-    minimumConfirmations: 1
+    minimumConfirmations: 1,
+    fiatCurrency: 'USD' // Any supported by exchange rate source
     // Fee per KB is the Bitcore default
   }
   
@@ -87,6 +88,84 @@ BitcoinAcceptor.prototype.toAddress = function (privkeyOrAddr, callback) {
   }
   
   callback(null, addrString)
+}
+
+/**
+ * Get the exchange rate, in fiat units per BTC. The default fiat currency is
+ * USD.
+ *
+ * This attempts to get the rate from blockr, but the blockr rate is very wrong,
+ * so it's not used.
+ */
+BitcoinAcceptor.prototype.getBlockrExchangeRate = function (callback) {
+  // Make a request to the appropriate endpoint
+  var apiCall = '/exchangerate/current'
+  request.get(this.apiBase + apiCall, (err, response, body) => {
+    if (err) {
+      return callback(err)
+    }
+    
+    var rate;
+    
+    try {
+      // Parse the returned JSON
+      body = JSON.parse(body)
+      // Go look for the rates we want, and divide to get the normal-style exchange rate
+      rate = body.data[0].rates[this.settings.fiatCurrency] / body.data[0].rates['BTC']
+    } catch (err) {
+      return callback(err)
+    }
+    
+    // Send back the rate
+    callback(null, rate);
+    
+  })
+}
+
+/**
+ * Get the exchange rate, in fiat units per BTC. The default fiat currency is
+ * USD.
+ *
+ * This uses the Blockchain.info ticker API.
+ */
+BitcoinAcceptor.prototype.getExchangeRate = function (callback) {
+  // Make a request to the blockchain.info ticker
+  request.get('https://blockchain.info/ticker', (err, response, body) => {
+    if (err) {
+      return callback(err)
+    }
+    
+    var rate;
+    
+    try {
+      // Parse the returned JSON
+      body = JSON.parse(body)
+      // Go look for the rate we want (most recent exchange rate)
+      rate = body[this.settings.fiatCurrency]['last']
+    } catch (err) {
+      return callback(err)
+    }
+    
+    // Send back the rate
+    callback(null, rate);
+    
+  })
+}
+
+/**
+ * Convert the given fiat amount into a non-nonsensical (i.e. to-the-satoshi)
+ * amount of BTC, using the given exchange rate.
+ */
+BitcoinAcceptor.prototype.fiatToBtc = function (fiat, exchangeRate) {
+  return bitcore.Unit.fromFiat(fiat, exchangeRate).toBTC()
+}
+
+/**
+ * Convert the given BTC amount into an amout of fiat, using the given exchange
+ * rate.
+ */
+BitcoinAcceptor.prototype.btcToFiat = function (btc, exchangeRate) {
+  return bitcore.Unit.fromBTC(btc).atRate(exchangeRate)
 }
 
 /**
@@ -221,13 +300,16 @@ BitcoinAcceptor.prototype.sendTransaction = function (transaction, callback) {
     var toPost = transaction.serialize()
     
     // Send it and get a response
-    request.post({url: this.apiBase + apiCall, body: toPost},  (err, response, body) => {
+    request.post({url: this.apiBase + apiCall, json: {hex: toPost}},  (err, response, body) => {
       if (err) {
         return callback(err)
       }
     
+      console.log('Reply: ', body)
+    
       // Make sure the other end liked it
-      body = JSON.parse(body)
+      
+      // Body is already parsed as json by request module, since we sent JSON.
       
       if (body.status != 'success') {
         // The other end didn't like it.
@@ -276,7 +358,20 @@ BitcoinAcceptor.prototype.sweep = function (privkey, callback) {
         .sign(privkey)
         
       // Send it off
-      this.sendTransaction(transaction, callback)
+      this.sendTransaction(transaction, (err) => {
+        if (err) {
+          return callback(err)
+        }
+        
+        try {
+          // If the send succeeded, send back the amount moved.
+          var moved = bitcore.Unit.fromSatoshis(transaction._getOutputAmount()).toBTC()
+          
+          callback(null, moved)
+        } catch (err) {
+          callback(err)
+        }
+      })
     
     } catch (err) {
       return callback(err)
