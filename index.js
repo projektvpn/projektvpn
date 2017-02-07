@@ -191,29 +191,20 @@ function getAccount(pubkey, callback) {
 }
 
 // Look up an account by ID. Call the callback with an error, or null and the
-// returned record (which may not be in the database because it holds no non-
-// default info)
+// returned record if the record is present
 function getAccountById(id, callback) {
-  c.query('SELECT * FROM account WHERE id = ?;', [pubkey], (err, rows) => {
+  c.query('SELECT * FROM account WHERE id = ?;', [id], (err, rows) => {
     if (err) {
       return callback(err)
     }
     
-    // Pull or synthesize the record
-    var record
     if (rows.length == 0) {
-      // Make a default record
-      record = {
-        id: null,
-        pubkey: pubkey,
-        active: false,
-        paid_through: null
-      }
+      return callback(new Error('No account found with id ' + id))
     } else {
       // Use the record we found
-      record = rows[0]
+      return callback(null, rows[0])
     }
-    callback(null, record)
+    
   })
 }
 
@@ -255,7 +246,7 @@ function getOrCreateAccount(pubkey, callback) {
 }
 
 // Given the id of an account, a Bitcore privkey, and an expected payment amount
-// in BTC, add the Bitcoin address to the account in our log.
+// in BTC, add the Bitcoin address/payment request to the account.
 function addBtcAddress(account_id, key, expectedBtc, callback) {
   c.query('INSERT INTO btc_address (account_id, address, privkey, expected_payment) VALUES (?, ?, ?, ?);',
     [account_id, key.toAddress(), key.toString(), acceptor.btcToSatoshis(expectedBtc)], (err, rows) => {
@@ -267,6 +258,25 @@ function addBtcAddress(account_id, key, expectedBtc, callback) {
     console.log('Account #', account_id, ' associated with address ', key.toAddress())
     
     callback(null)
+    
+  })
+}
+
+// Given the BTC address of a payment request, return the record for that
+// payment request.
+function getBtcAddress(address, callback) {
+  c.query('SELECT * FROM btc_address WHERE address = ?;', [address], (err, rows) => {
+    
+    if (err) {
+      return callback(err)
+    }
+    
+    if (rows.length == 0) {
+      return callback(new Error('No payment request with bitcoin address ' + address + ' found'))
+    } else {
+      // Use the record we found
+      return callback(null, rows[0])
+    }
     
   })
 }
@@ -300,11 +310,10 @@ function markPaid(btcAddress, callback) {
 // the key is more than was supposed to have been received. If so, go and credit
 // the account.
 function pollPaymentRequest(btcAddressRecord, callback) {
-
   // Unpack the database record
   var address = btcAddressRecord.address
-  var privkey = btcAddressRecord.privkey
-  var expectedBtc = acceptor.satoshisToBtc(btcAddressRecord.requested_payment)
+  var privkey = acceptor.loadKey(btcAddressRecord.privkey)
+  var expectedBtc = acceptor.satoshisToBtc(btcAddressRecord.expected_payment)
   var accountId = btcAddressRecord.account_id
 
   // Set up a handler for the actual payment
@@ -313,7 +322,7 @@ function pollPaymentRequest(btcAddressRecord, callback) {
       return callback(err)
     }
   
-    console.log('Address ', address, ' has balance ', amount)
+    console.log('Address ', address, ' has balance ', balance, ' and needs ', expectedBtc)
     
     if (balance >= expectedBtc) {
       // They paid enough
@@ -358,7 +367,8 @@ function pollPaymentRequest(btcAddressRecord, callback) {
                 return callback(err)
               }
               
-              // TODO: tell the user they're paid up
+              // If we get through here, we're successful.
+              callback(null)
               
             })
           })
@@ -366,6 +376,9 @@ function pollPaymentRequest(btcAddressRecord, callback) {
         })
       })
       
+    } else {
+        // Not enough money to do anything, but we still need to call the callback.
+        callback(null)
     }
   })
 }
@@ -404,21 +417,26 @@ function addTime(account, callback) {
   // Parse the old paid through date
   var paid_through = moment(account.paid_through);
   
-  if (paid_through < moment()) {
-    // If it's expired, sset it paid until now
+  if (!paid_through.isValid() || paid_through < moment()) {
+    // If it's expired or otherwise nonsense, set it paid until now
     paid_through = moment()
   }
   
   // Now add a (standard) month
   paid_through = paid_through.add(31, 'days')
   
+  // Turn it into a string SQL can read
+  paid_string = paid_through.format('YYYY-MM-DD HH:MM:SS')
+  
   // Update the date. We leave the active flag alone.
-  c.query('UPDATE account SET paid_through = ? WHERE id = ?', [paid_through, account.id], (err, rows) => {
+  c.query('UPDATE account SET paid_through = ? WHERE id = ?',
+    [paid_string, account.id], (err, rows) => {
+    
     if (err) {
       callback(err)
     }
     
-    console.log('Account ', account.pubkey, ' paid through ', paid_through)
+    console.log('Account ', account.pubkey, ' paid through ', paid_through, ' = ', paid_string)
     
     if (!account.active) {
       // We need to activate the account
@@ -506,6 +524,38 @@ app.get('/account/:pubkey', function (req, res) {
   })
 })
 
+// Debugging function to force time onto an account
+app.post('/account/:pubkey/force_add_time', function (req, res) {
+  var pubkey = req.params['pubkey']
+
+  // Make sure it's a legit key
+  parsePubkey(pubkey, (err, ip6) => {
+    
+    if (err) {
+      // It's not a valid key
+      return res.render('error', {message: 'Invalid public key'})
+    }
+    
+    // Otherwise, it's a valid key. We need to make an account
+    getOrCreateAccount(pubkey, (err, account) => {
+      if (err) {
+        throw err
+      }
+      
+      addTime(account, (err) => {
+        if (err) {
+          throw err;
+        }
+        
+        // Send user back to the account
+        res.redirect('.')
+        
+      })
+      
+    })
+  })
+})
+
 // Add a function to generate an invoice
 app.post('/account/:pubkey/invoice', function (req, res) {
   var pubkey = req.params['pubkey']
@@ -534,22 +584,17 @@ app.post('/account/:pubkey/invoice', function (req, res) {
         }
         
         // Make a private key to accept payment
-        var btcKey = acceptor.generateKey()
+        var privkey = acceptor.generateKey()
         
         // Log it in the database
-        addBtcAddress(account.id, btcKey, monthlyPrice, (err) => {
+        addBtcAddress(account.id, privkey, monthlyPrice, (err) => {
         
           if (err) {
             throw err
           }
           
-          // Now that we can take payment, tell the client
-          return res.render('invoice', {
-            title: "Invoice",
-            account: account,
-            monthlyPrice: monthlyPrice,
-            btcAddress: key.toAddress()
-          })
+          // Send user back to the account
+          return res.redirect('/invoice/' + privkey.toAddress().toString())
           
         })
       })
@@ -560,10 +605,31 @@ app.post('/account/:pubkey/invoice', function (req, res) {
 
 // And a page to refresh and watch an invoice to see if it has been paid
 app.get('/invoice/:address', function (req, res) {
+  
+  var address = req.params['pubkey']
 
-  // TODO: implement
+  // Find the payment request for that address
+  getBtcAddress(address, (err, address_record) => {
+    if (err) {
+      throw err
+    }
 
-  getAccountById(btcAddress.account_id, (err, account) => {
+    // Find the account that it belongs to
+    getAccountById(address_record.account_id, (err, account) => {
+      if (err) {
+        throw err
+      }
+  
+      // Now that we can take payment, tell the client
+      return res.render('invoice', {
+        title: "Invoice",
+        account: account,
+        amount: acceptor.satoshisToBtc(address_record.expected_payment),
+        btcAddress: address,
+        received: address_record.received
+      })
+
+    })
   })
   
 })
@@ -582,7 +648,7 @@ async.series([upgradeDatabase, setupDefaultConfig], (err) => {
   app.listen(3000, 'localhost', () => {
      
     // Make sure to schedule our cron jobs
-    setTimeout(pollAllPaymentRequests, 1000 * 60 * 2)
+    setTimeout(pollAllPaymentRequests, 1)
   
     // Then tell the user
     console.log('Example app listening on port 3000!')
