@@ -1,0 +1,40 @@
+/* Set up a cool background */
+body {
+  background: url('/images/background.jpg') no-repeat center center fixed;
+  -webkit-background-size: cover;
+  -moz-background-size: cover;
+  -o-background-size: cover;
+  background-size: cover;
+}
+
+/* Make the page have a background over that */
+.container {
+  background-color: #fff;
+  padding-left: 15px;
+  padding-right: 15px;
+  padding-top: 15px;
+  padding-bottom: 15px;
+  border-radius: 4px;
+  -webkit-box-shadow: 0 1px 1px rgba(0,0,0,.05);
+  box-shadow: 0 1px 1px rgba(0,0,0,.05);
+  border-color: #ddd;
+}
+
+/* Give us some space */
+body {
+  padding-top: 20px;
+  padding-bottom: 20px;
+}
+.header, .footer {
+  padding-right: 15px;
+  padding-left: 15px;
+}
+
+/* Make the bage narrower */
+@media (min-width: 768px) {
+  .container {
+    max-width: 730px;
+  }
+}
+
+

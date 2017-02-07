@@ -677,6 +677,8 @@ app.get('/invoice/:address', function (req, res) {
 
 // Now here's the app startup
 
+app.use(express.static('public'))
+
 // Do some configuring
 async.series([upgradeDatabase, setupDefaultConfig], (err) => {
   if (err) {
