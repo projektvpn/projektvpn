@@ -42,7 +42,7 @@ function upgradeDatabase(callback) {
   var tables = [
     // A table for accounts
     `CREATE TABLE IF NOT EXISTS account(
-      id INT PRIMARY KEY, 
+      id INT AUTO_INCREMENT PRIMARY KEY, 
       pubkey VARCHAR(80) UNIQUE NOT NULL, 
       paid_through DATETIME DEFAULT CURRENT_TIMESTAMP,
       active BOOL DEFAULT FALSE  
@@ -52,7 +52,7 @@ function upgradeDatabase(callback) {
     // be received in the given address (in satoshis), and whether it was
     // detected and credited or not.
     `CREATE TABLE IF NOT EXISTS btc_address(
-      id INT PRIMARY KEY,
+      id INT AUTO_INCREMENT PRIMARY KEY,
       account_id INT NOT NULL,
       address VARCHAR(34) UNIQUE NOT NULL,
       privkey VARCHAR(64),
@@ -63,13 +63,13 @@ function upgradeDatabase(callback) {
     );`,
     // A table for IPv4 networks (each has 255 IPs we can assign)
     `CREATE TABLE IF NOT EXISTS ip4_network(
-      id INT PRIMARY KEY,
+      id INT AUTO_INCREMENT PRIMARY KEY,
       network VARCHAR(16) UNIQUE NOT NULL
     );`,
     // A table for actually instantiated IPs (which we can reuse when they get
     // de-assigned)
     `CREATE TABLE IF NOT EXISTS ip4_address(
-      id INT PRIMARY KEY,
+      id INT AUTO_INCREMENT PRIMARY KEY,
       ip VARCHAR(16) UNIQUE NOT NULL,
       last_octet INT NOT NULL,
       account_id INT,
@@ -401,8 +401,9 @@ function pollAllPaymentRequests() {
       
       console.log('Polled ' + rows.length + ' invoices successfully')
       
-      // Schedule this to happen again
-      setTimeout(pollAllPaymentRequests, 1000 * 60 * 2)
+      // Schedule this to happen again. We can do it relatively infrequently
+      // here, and let client invoices poll faster.
+      setTimeout(pollAllPaymentRequests, 1000 * 60 * 5)
     })
     
     
@@ -425,11 +426,11 @@ function addTime(account, callback) {
   // Now add a (standard) month
   paid_through = paid_through.add(31, 'days')
   
-  // Turn it into a string SQL can read
-  paid_string = paid_through.format('YYYY-MM-DD HH:MM:SS')
+  // Turn it into a string SQL can read (ISO 8601)
+  paid_string = paid_through.format()
   
   // Update the date. We leave the active flag alone.
-  c.query('UPDATE account SET paid_through = ? WHERE id = ?',
+  c.query('UPDATE account SET paid_through = CAST(? AS DATETIME) WHERE id = ?',
     [paid_string, account.id], (err, rows) => {
     
     if (err) {
@@ -606,7 +607,7 @@ app.post('/account/:pubkey/invoice', function (req, res) {
 // And a page to refresh and watch an invoice to see if it has been paid
 app.get('/invoice/:address', function (req, res) {
   
-  var address = req.params['pubkey']
+  var address = req.params['address']
 
   // Find the payment request for that address
   getBtcAddress(address, (err, address_record) => {
@@ -614,22 +615,60 @@ app.get('/invoice/:address', function (req, res) {
       throw err
     }
 
-    // Find the account that it belongs to
-    getAccountById(address_record.account_id, (err, account) => {
+    // First we say how to send the page with a given record for the payment
+    // request.
+    var sendPage = (address_record) => {
+    
       if (err) {
         throw err
       }
-  
-      // Now that we can take payment, tell the client
-      return res.render('invoice', {
-        title: "Invoice",
-        account: account,
-        amount: acceptor.satoshisToBtc(address_record.expected_payment),
-        btcAddress: address,
-        received: address_record.received
-      })
+    
+      // Find the account that it belongs to
+      getAccountById(address_record.account_id, (err, account) => {
+        if (err) {
+          throw err
+        }
+    
+        // Now that we can take payment, tell the client
+        return res.render('invoice', {
+          title: "Invoice",
+          account: account,
+          amount: acceptor.satoshisToBtc(address_record.expected_payment),
+          btcAddress: address,
+          received: address_record.received != 0
+        })
 
-    })
+      })
+    }
+    
+    // Now we decide if we have to poll the address immediately, before
+    // responding to the client.
+    if (address_record.received == 0) {
+      // If the payment's not in yet, see if we can make it come in.
+      console.log('Need to poll')
+      pollPaymentRequest(address_record, (err) => {
+        if (err) {
+          throw err
+        }
+        
+        // Then see what the database says again and shadow the old
+        // address_record with the new one.
+        getBtcAddress(address, (err, address_record) => {
+          if (err) {
+            throw err
+          }
+          
+          // Now actually send the page with the updated view of the database
+          sendPage(address_record)
+        })
+      })
+    } else {
+      // No need to go poll the address. Just render from what's in the DB now.
+      console.log('No need to poll')
+      sendPage(address_record)
+    }
+
+    
   })
   
 })
