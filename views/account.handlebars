@@ -5,6 +5,15 @@
 <p>cjdns IP: {{account.ip6}}</p>
 <p>Active: {{account.active}}</p>
 <p>Paid through: {{account.paid_through}}{{^account.paid_through}}Not Paid Up!{{/account.paid_through}}</p>
+
+{{#if account.active}}
+<p>This account is <b>active</b>. If it is your account, you can connect by adding the following to the <code>"outgoingConnections"</code> array in the <code>"ipTunnel"</code> section of your <code>cjdroute.conf</code>:</p>
+
+<pre><code>// ProjektVPN tunnel for {{account.ip4}}
+"{{server_pubkey}}",</code></pre>
+
+{{/if}}
+
 <form method="POST" action="/account/{{account.pubkey}}/invoice">
     <input type="submit" value="Add Time">
 </form>

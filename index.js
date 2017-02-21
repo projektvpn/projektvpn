@@ -28,10 +28,22 @@ var acceptor = new bitcoinAcceptor(process.env.BTC_PAYTO, {
 // Set up database
 var Client = require('mariasql')
 var c = new Client({
-  host: process.env.DB_HOST,
+  host: process.env.DB_HOST || 'localhost',
   user: process.env.DB_USER,
   password: process.env.DB_PASS,
   db: process.env.DB_DATABASE
+})
+
+// Connect to cjdns
+var admin = cjdnsAdmin.createAdmin({
+  ip: process.env.CJDNS_ADMIN_HOST || 'localhost',
+  port: process.env.CJDNS_ADMIN_PORT || 11234,
+  password: process.env.CJDNS_ADMIN_PASS
+})
+
+admin.on(admin.ping(), (response) => {
+  // Report on the cjdns node
+  console.log('CJDNS ping reponse: ', response.data.q)
 })
 
 // Upgrade the DB and create missing tables, then call the callback
@@ -513,8 +525,7 @@ function addTime(account, callback) {
     }
     
     console.log('Account ', account.pubkey, ' paid through ', paid_through, ' = ', paid_string)
-    
-    if (!account.active) {
+    if (parseInt(account.active) == 0) {
       // We need to activate the account
       activateAccount(account, callback)
     } else {
@@ -522,6 +533,32 @@ function addTime(account, callback) {
     }
   })
   
+}
+
+// Call the callback with null and the assigned IP, which may be null, for the
+// given account. Calls the callback with the error if there is an error.
+function getIpForAccount(account, callback) {
+
+  if (account.id == undefined) {
+    // Not a real account yet
+    return callback(null, null)
+  }
+
+  c.query('SELECT (ip) FROM ip4_address WHERE account_id = ?', [account.id], (err, rows) => {
+    if (err) {
+      return callback(err)
+    }
+    
+    // We looked up the IP
+    
+    if (rows.length == 0) {
+      // No assigned IP
+      return callback(null, null)
+    }
+    
+    callback(null, rows[0].ip)
+  })
+
 }
 
 // Make sure an account has an IP assigned. Calls the callback with null on
@@ -538,7 +575,7 @@ function ensureIpAssigned(account, callback) {
     }
     
     // Otherwise we need to go get one
-    c.query('UPDATE ip4_address SET account_id = ? WHERE account_id = NULL LIMIT 1', [account.id], (err, rows) => {
+    c.query('UPDATE ip4_address SET account_id = ? WHERE account_id IS NULL LIMIT 1', [account.id], (err, rows) => {
       if (err) {
         return callback(err)
       }
@@ -563,21 +600,92 @@ function ensureIpAssigned(account, callback) {
 // Activate an account that was inactive. Assign an IP and maybe tell cjdns about it.
 function activateAccount(account, callback) {
 
-  
-
-  // Mark the account active
-  // TODO: do this last so we will notice if activation failed
-  c.query('UPDATE account SET active = TRUE WHERE id = ?', [account.id], (err, rows) => {
+  // Can't be active without an IP4
+  ensureIpAssigned(account, (err) => {
     if (err) {
-      throw err
+      return callback(err)
+    }
+
+    // Mark the account active
+    // TODO: do this last so we will notice if activation failed
+    c.query('UPDATE account SET active = TRUE WHERE id = ?', [account.id], (err, rows) => {
+      if (err) {
+        throw err
+      }
+      
+      console.log('Activated ', account.pubkey)
+      
+      // Start the tunnel in cjdns
+      startAccountTunnel(account, callback)
+      
+    })
+  })
+}
+
+// This function starts up an IP tunnel for the given account record, assuming it has an IP assigned.
+// Relevant cjdns call is:
+//IpTunnel_allowConnection(publicKeyOfAuthorizedNode, ip4Alloc='', ip6Alloc='', ip4Address=0, ip4Prefix='', ip6Address=0, ip6Prefix='')
+function startAccountTunnel(account, callback) {
+  // TODO: this can create duplicate IPtunnels in cjdns. These may or may not break things.
+  // Instead of creating tunnels all the time, we should do something like ask cjdns what tunnels it has and create the ones that are missing.
+  
+  // Get the IP
+  c.query('SELECT (ip) FROM ip4_address WHERE account_id = ?', [account.id], (err, rows) => {
+    if (err) {
+      return callback(err)
     }
     
-    console.log('Activated ', account.pubkey)
+    if (rows.length != 1) {
+      // We need to find the IP
+      return callback(new Error('No ip found when starting tunnel for account ' + account.id))
+    }
     
-    // TODO: assign IP, tell cjdns
+    var remote_ip = rows[0].ip
+    
+    // Prepare the cjdns config for the tunnel
+    var tunnel_options = {
+      ip4Address: remote_ip,
+      ip4Prefix: 0, // Advertise the whole Internet
+      publicKeyOfAuthorizedNode: account.pubkey
+    }
+    
+    // If cjdns doesn't get back to us soon, complain of failure
+    var cjdns_timeout = setTimeout(() => {
+      callback(new Error('cjdns admin timeout'))
+    }, 10000)
+    
+    admin.once(admin.ipTunnel.allowConnection(tunnel_options), (response) => {
+      // cjdns got back to us
+      clearTimeout(cjdns_timeout)
+      
+      if(response.data.error != 'none') {
+        // cjdns didn't say it worked
+        return callback(new Error('Bad response when setting up IP tunnel: ' + response))
+      }
+      
+      // It worked!
+      callback(null)
+      
+    })
     
   })
 }
+
+// To be run on startup, or periodically. Start all the active accounts'
+// tunnels.
+function startAllActiveAccountTunnels(callback) {
+  c.query('SELECT * FROM account WHERE active = 1', [], (err, rows) => {
+    if (err) {
+      return callback(err)
+    }
+    
+    console.log('Start up ', rows.length, ' active tunnels')
+    
+    // Start all the tunnels, then feed into our callback.
+    async.each(rows, startAccountTunnel, callback)
+  })
+}
+
 
 // This function calls the callback with an error if the given key is not a
 // valid cjdns pubkey, and with null and the IP address if it is.
@@ -626,13 +734,21 @@ app.get('/account/:pubkey', function (req, res) {
         throw err
       }
       
-      // Stick the IP6 in the record
-      record['ip6'] = ip6
+      // See if it has an IPv4 assigned
+      getIpForAccount(record, (err, ip4) => {
       
-      // Render a page about the account
-      res.render('account', {
-        account: record,
-        title: record.pubkey
+        // Stick the cjdns IP6 in the record
+        record['ip6'] = ip6
+        
+        // And the tunnel IP4 we assigned it
+        record['ip4'] = ip4
+        
+        // Render a page about the account
+        res.render('account', {
+          account: record,
+          server_pubkey: process.env.CJDNS_PUBKEY,
+          title: record.pubkey
+        })
       })
       
     })
@@ -794,7 +910,7 @@ app.get('/invoice/:address', function (req, res) {
 app.use(express.static('public'))
 
 // Do some configuring
-async.series([upgradeDatabase, setupDefaultConfig], (err) => {
+async.series([upgradeDatabase, setupDefaultConfig, startAllActiveAccountTunnels], (err) => {
   if (err) {
     // Setup didn't go so well
     throw err
