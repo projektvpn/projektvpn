@@ -90,7 +90,29 @@ function upgradeDatabase(callback) {
     c.query(statement, (err, rows) => {
       callback(err)
     })
-  }, callback)
+  }, (err) => {
+    if (err) {
+      return callback(err)
+    }
+    
+    // Now we create entries for things that ought to be in the database
+    c.query('SELECT * FROM ip4_network', [], (err, rows) => {
+      if (err) {
+        return callback(err)
+      }
+      
+      if (rows.length == 0) {
+        // We have no IP4 networks at all
+        console.log('Create an IP4 network...')
+        
+        createIp4Network('10.27.75.0', callback)
+      } else {
+        callback(null)
+      }
+      
+    })
+    
+  })
 }
 
 // Get a config value from the database and call the callback with it If a
@@ -245,10 +267,63 @@ function getOrCreateAccount(pubkey, callback) {
   })
 }
 
+// Add a new IPv4 network, and all of its IPs, to the database, then call the
+// callback. network_ip should be like '10.1.1.0'.
+function createIp4Network(network_ip, callback) {
+  c.query('INSERT INTO ip4_network (network) VALUES (?)', [network_ip], (err, rows) => {
+    if (err) {
+      return callback(err)
+    }
+    
+    // OK now the network exists, populate it
+    
+    // First get its ID
+    c.query('SELECT id FROM ip4_network WHERE network = ?', [network_ip], (err, rows) => {
+      if (err) {
+        return callback(err)
+      }
+      
+      if (rows.length != 1) {
+        return callback(new Error('Could not find network we just added'))
+      }
+      
+      // OK now we have the actual ID
+      var network_id = rows[0].id
+      
+      // Make an array of all the last octets
+      var last_octets = []
+      for (var i = 2; i < 255; i++) {
+        // Skip .1, which we assign to this machine, and .255, which would be broadcast
+        last_octets.push(i)
+      }
+      
+      async.each(last_octets, (last_octet, callback) => {
+        // Make up the IP that has this last octet
+        
+        var ip_address = network_ip.replace(/\.0$/, '.' + last_octet)
+      
+        c.query('INSERT INTO ip4_address (ip, last_octet, network_id) VALUES (?, ?, ?)', [ip_address, last_octet, network_id],
+          (err, rows) => {
+          
+          if (err) {
+            return callback(err)
+          }
+          
+          // After the insert we're done
+          callback(null)
+        })
+      }, callback)
+      
+    })
+    
+    
+  })
+}
+
 // Given the id of an account, a Bitcore privkey, and an expected payment amount
 // in BTC, add the Bitcoin address/payment request to the account.
 function addBtcAddress(account_id, key, expectedBtc, callback) {
-  c.query('INSERT INTO btc_address (account_id, address, privkey, expected_payment) VALUES (?, ?, ?, ?);',
+  c.query('INSERT INTO btc_address (account_id, address, privkey, expected_payment) VALUES (?, ?, ?, ?)',
     [account_id, key.toAddress(), key.toString(), acceptor.btcToSatoshis(expectedBtc)], (err, rows) => {
     
     if (err) {
@@ -434,7 +509,7 @@ function addTime(account, callback) {
     [paid_string, account.id], (err, rows) => {
     
     if (err) {
-      callback(err)
+      return callback(err)
     }
     
     console.log('Account ', account.pubkey, ' paid through ', paid_through, ' = ', paid_string)
@@ -449,8 +524,47 @@ function addTime(account, callback) {
   
 }
 
+// Make sure an account has an IP assigned. Calls the callback with null on
+// success, or an error on failure.
+function ensureIpAssigned(account, callback) {
+  c.query('SELECT * FROM ip4_address WHERE account_id = ?', [account.id], (err, rows) => {
+    if (err) {
+      return callback(err)  
+    }
+    
+    if (rows.length > 0) {
+      // We already have an IP
+      return callback(null)
+    }
+    
+    // Otherwise we need to go get one
+    c.query('UPDATE ip4_address SET account_id = ? WHERE account_id = NULL LIMIT 1', [account.id], (err, rows) => {
+      if (err) {
+        return callback(err)
+      }
+      
+      if (rows.info.affectedRows == 1) {
+        // We assigned one
+        return callback(null)
+      }
+      
+      // We couldn't find a wandering one, so let's make one
+      // TODO: add logic to make new IPs
+      // For now we just populate the DB at startup
+      return callback(new Error('No IP addresses available to allocate'))
+      
+      
+      
+    })
+    
+  })
+}
+
 // Activate an account that was inactive. Assign an IP and maybe tell cjdns about it.
 function activateAccount(account, callback) {
+
+  
+
   // Mark the account active
   // TODO: do this last so we will notice if activation failed
   c.query('UPDATE account SET active = TRUE WHERE id = ?', [account.id], (err, rows) => {
