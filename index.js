@@ -857,14 +857,14 @@ function tunnelDaemon() {
   syncActiveTunnels((err) => {
     if (err) {
       // Make sure to set up another call to leave the critical section
-      tunnelDaemonTimeout = setTimeout(tunnelDaemon, 10000)
+      tunnelDaemonTimeout = setTimeout(tunnelDaemon, 1000 * 60 * 5)
       throw err
     }
     
     console.log('Tunnels synchronized successfully')
     
     // Tunnels are synced
-    tunnelDaemonTimeout = setTimeout(tunnelDaemon, 10000)
+    tunnelDaemonTimeout = setTimeout(tunnelDaemon, 1000 * 60 * 5)
   })
   
  
@@ -885,16 +885,32 @@ function parsePubkey(pubkey, callback) {
 
 // Now we define the actual web methods
 
+// Awesome homesite
 app.get('/', function (req, res) {
   c.query('SELECT COUNT(*) FROM account WHERE active = TRUE;', null, {useArray: true}, (err, rows) => {
     if (err) {
       throw err
     }
     
-    res.render('index', {
-      title: 'Index',
-      active_accounts: rows[0][0]
+    getMonthlyPrice((err, price) => {
+      if (err) {
+        throw err
+      }
+    
+      res.render('index', {
+        title: 'Index',
+        active_accounts: rows[0][0],
+        price: price
+      })
     })
+  })
+})
+
+// We want an about page
+app.get('/about', function (req, res) {
+  res.render('about', {
+    title: 'About ProjektVPN',
+    server_pubkey: process.env.CJDNS_PUBKEY,
   })
 })
 

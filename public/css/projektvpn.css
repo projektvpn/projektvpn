@@ -30,7 +30,14 @@ body {
   padding-left: 15px;
 }
 
-/* Make the bage narrower */
+/* Make things center vertically */
+.valign {
+  display: inline-block;
+  vertical-align: middle;
+  float: none;
+}
+
+/* Make the page narrower */
 @media (min-width: 768px) {
   .container {
     max-width: 730px;
