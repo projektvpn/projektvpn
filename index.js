@@ -2,32 +2,32 @@
 require('dotenv').config()
 
 // We need this to help with the callbacks
-var async = require('async')
+const async = require('async')
 
-var express = require('express')
-var expressHandlebars = require('express-handlebars')
-var bitcoinAcceptor = require('./bitcoinAcceptor')
-var cjdnsAdmin = require('cjdns-admin')
-var moment = require('moment')
+const express = require('express')
+const expressHandlebars = require('express-handlebars')
+const bitcoinAcceptor = require('./bitcoinAcceptor')
+const cjdnsAdmin = require('cjdns-admin')
+const moment = require('moment')
 
 // Find our pubkey code stolen from cjdns
-var publicToIp6 = require('./publicToIp6')
+const publicToIp6 = require('./publicToIp6')
 
 // Set up express
-var app = express()
+const app = express()
 // Register '.hbs' extension with Handlebars
 app.engine('handlebars', expressHandlebars({defaultLayout: 'main'}));
 app.set( 'view engine', 'handlebars' );
 
 // Set up bitcoinAcceptor
-var acceptor = new bitcoinAcceptor(process.env.BTC_PAYTO, {
+const acceptor = new bitcoinAcceptor(process.env.BTC_PAYTO, {
   network: process.env.BTC_NETWORK, 
   minimumConfirmations: 1
 })
 
 // Set up database
-var Client = require('mariasql')
-var c = new Client({
+const Client = require('mariasql')
+const c = new Client({
   host: process.env.DB_HOST || 'localhost',
   user: process.env.DB_USER,
   password: process.env.DB_PASS,
@@ -35,7 +35,7 @@ var c = new Client({
 })
 
 // Connect to cjdns
-var admin = cjdnsAdmin.createAdmin({
+const admin = cjdnsAdmin.createAdmin({
   ip: process.env.CJDNS_ADMIN_HOST || 'localhost',
   port: process.env.CJDNS_ADMIN_PORT || 11234,
   password: process.env.CJDNS_ADMIN_PASS
@@ -615,8 +615,11 @@ function activateAccount(account, callback) {
       
       console.log('Activated ', account.pubkey)
       
-      // Start the tunnel in cjdns
-      startAccountTunnel(account, callback)
+      // Sync tunnels now by waking up the One True Function in charge of tunnels
+      tunnelDaemon()
+      
+      // Everything worked
+      callback(null)
       
     })
   })
@@ -652,6 +655,7 @@ function startAccountTunnel(account, callback) {
     // If cjdns doesn't get back to us soon, complain of failure
     var cjdns_timeout = setTimeout(() => {
       callback(new Error('cjdns admin timeout'))
+      callback = (() => {})
     }, 10000)
     
     admin.once(admin.ipTunnel.allowConnection(tunnel_options), (response) => {
@@ -660,7 +664,7 @@ function startAccountTunnel(account, callback) {
       
       if(response.data.error != 'none') {
         // cjdns didn't say it worked
-        return callback(new Error('Bad response when setting up IP tunnel: ' + response))
+        return callback(new Error('Bad response when setting up IP tunnel: ' + JSON.stringify(response)))
       }
       
       // It worked!
@@ -672,20 +676,176 @@ function startAccountTunnel(account, callback) {
 }
 
 // To be run on startup, or periodically. Start all the active accounts'
-// tunnels.
-function startAllActiveAccountTunnels(callback) {
+// tunnels, except the ones with pubkeys in the given Set.
+function startAllActiveAccountTunnels(excluded = undefined, callback) {
+  if (excluded == undefined) {
+    // By default, don't exclude anything
+    excluded = new Set()
+  }
   c.query('SELECT * FROM account WHERE active = 1', [], (err, rows) => {
     if (err) {
       return callback(err)
     }
     
-    console.log('Start up ', rows.length, ' active tunnels')
-    
     // Start all the tunnels, then feed into our callback.
-    async.each(rows, startAccountTunnel, callback)
+    async.each(rows, (account, callback) => {
+      if (excluded.has(account.pubkey)) {
+        // Skip excluded accounts
+        return callback(null)
+      }
+      
+      console.log('Start tunnel for account ' + account.id)
+      
+      // Make tunnels for the others
+      startAccountTunnel(account, callback)
+    }, callback)
   })
 }
 
+function syncActiveTunnels(callback) {
+  // If cjdns doesn't get back to us soon, complain of failure
+  var cjdns_timeout = setTimeout(() => {
+    callback(new Error('cjdns admin timeout'))
+    callback = (() => {})
+  }, 10000)
+
+  // List all the tunnels (IDs will be stable as new ones are added)
+  admin.once(admin.ipTunnel.listConnections(), (response) => {
+    // cjdns got back to us
+    clearTimeout(cjdns_timeout)
+    
+    console.log('Found ' + response.data.connections.length + ' open tunnels.')
+    
+    if(response.data.error != 'none') {
+      // cjdns didn't say it worked
+      return callback(new Error('Bad response when listing IP tunnels: ' + JSON.stringify(response)))
+    }
+    
+    async.map(response.data.connections, (connection_number, callback) => {
+      // We're going to turn the connections into a list of keys that should
+      // have tunnels, and null entries.
+    
+      var cjdns_timeout = setTimeout(() => {
+        callback(new Error('cjdns admin timeout'))
+        callback = (() => {})
+      }, 10000)
+    
+      admin.once(admin.ipTunnel.showConnection({
+        connection: connection_number
+      }), (response) => {
+        // cjdns got back to us
+        clearTimeout(cjdns_timeout)
+        
+        if(response.data.error != 'none') {
+          // cjdns didn't say it worked
+          return callback(new Error('Bad response when inspecting IP tunnel ' +
+            connection_number + ': ' + JSON.stringify(response)))
+        }
+        
+        if (parseInt(response.data.outgoing) > 0) {
+          // Ignore this one since it's outgoing
+          return callback(null);
+        } else {
+          // Make sure this one is supposed to be there
+          getAccount(response.data.key, (err, record) => {
+            if (err) {
+              return callback(err)
+            }
+            
+            if (parseInt(record.active) != 1) {
+              // This account shouldn't be active
+              
+              console.log('Tunnel ' + connection_number + ' for account ' +
+                record.id + ' ought not to be open. Closing...')
+              
+              // Oy with the timeouts already
+              var cjdns_timeout = setTimeout(() => {
+                callback(new Error('cjdns admin timeout'))
+                callback = (() => {})
+              }, 10000)
+              
+              admin.once(admin.ipTunnel.removeConnection({
+                connection: connection_number
+              }), (response) => {
+              
+                // cjdns got back to us
+                clearTimeout(cjdns_timeout)
+                
+                if(response.data.error != 'none') {
+                  // cjdns didn't say it worked
+                  return callback(new Error('Bad response when removing IP tunnel ' +
+                    connection_number + ': ' + JSON.stringify(response)))
+                }
+                
+                // It worked!
+                callback(null);
+                
+              })
+              
+            } else {
+              // This tunnel corresponds to an active account.
+
+              // Pass the key back so we can collate and find the accounts with
+              // no tunnels yet.
+              callback(null, record.pubkey)
+            }
+            
+          })
+        }
+          
+      })
+      
+    
+    }, (err, pubkeys) => {
+      if (err) {
+        return callback(err)
+      }
+    
+      // Now we have an array of pubkeys and nulls.
+      
+      // TODO: detect multiple copies of a pubkey and delete one tunnel.
+      
+      already_open = new Set(pubkeys)
+      already_open.delete(null)
+      
+      // Turn it into a set and start tunnels for everyone not found
+      startAllActiveAccountTunnels(already_open, callback)
+      
+    })
+  })
+}
+
+// This holds a timeout that fires periodically and tells us to create and destroy tunnels.
+var tunnelDaemonTimeout = null;
+// You can also call this function and have it create and destroy tunnels right
+// now, and it won't step on itself and try to go through the process twice at
+// once. The One True Way to make a tunnel is to update the database and then
+// call this function.
+function tunnelDaemon() {
+  if (tunnelDaemonTimeout == null) {
+    // Tunnel creation is already in progress
+    return
+  }
+  
+  // Otherwise, acquire the cheap-ass lock
+  clearTimeout(tunnelDaemonTimeout)
+  
+  // Now we're the onyl one in the critical section
+  syncActiveTunnels((err) => {
+    if (err) {
+      // Make sure to set up another call to leave the critical section
+      tunnelDaemonTimeout = setTimeout(tunnelDaemon, 10000)
+      throw err
+    }
+    
+    console.log('Tunnels synchronized successfully')
+    
+    // Tunnels are synced
+    tunnelDaemonTimeout = setTimeout(tunnelDaemon, 10000)
+  })
+  
+ 
+}
 
 // This function calls the callback with an error if the given key is not a
 // valid cjdns pubkey, and with null and the IP address if it is.
@@ -910,7 +1070,7 @@ app.get('/invoice/:address', function (req, res) {
 app.use(express.static('public'))
 
 // Do some configuring
-async.series([upgradeDatabase, setupDefaultConfig, startAllActiveAccountTunnels], (err) => {
+async.series([upgradeDatabase, setupDefaultConfig], (err) => {
   if (err) {
     // Setup didn't go so well
     throw err
@@ -920,6 +1080,7 @@ async.series([upgradeDatabase, setupDefaultConfig, startAllActiveAccountTunnels]
      
     // Make sure to schedule our cron jobs
     setTimeout(pollAllPaymentRequests, 1)
+    tunnelDaemonTimeout = setTimeout(tunnelDaemon, 1)
   
     // Then tell the user
     console.log('Example app listening on port 3000!')
