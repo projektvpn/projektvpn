@@ -137,7 +137,7 @@ function getConfig(key, fallback, callback) {
     callback = fallback
     fallback = undefined
   }
-  c.query('SELECT (value) FROM kvstore WHERE name = ?;', [key], (err, rows) => {
+  c.query('SELECT (value) FROM kvstore WHERE name = ?', [key], (err, rows) => {
     if (err) {
       return callback(err)
     }
@@ -153,14 +153,14 @@ function getConfig(key, fallback, callback) {
 
 // Set a config value in the database, then call the given callback
 function setConfig(key, value, callback) {
-  c.query('INSERT INTO kvstore (name, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE;', [key, value], (err, rows) => {
+  c.query('INSERT INTO kvstore (name, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = ?', [key, value, value], (err, rows) => {
     callback(err)
   }) 
 }
 
 // Set a config value in the database only if it is unset
 function defaultConfig(key, value, callback) {
-  c.query('INSERT IGNORE INTO kvstore (name, value) VALUES (?, ?);', [key, value], (err, rows) => {
+  c.query('INSERT IGNORE INTO kvstore (name, value) VALUES (?, ?)', [key, value], (err, rows) => {
     callback(err)
   }) 
 }
@@ -182,6 +182,7 @@ function setupDefaultConfig(callback) {
 
 // Get the monthly price in BTC that we charge
 function getMonthlyPrice(callback) {
+
   // Grab the service price and the value of bitcoins
   async.map(["servicePrice", "btcValue"], getConfig, (err, results) => {
     if (err) {
@@ -189,11 +190,33 @@ function getMonthlyPrice(callback) {
     }
     
     // Work out how much we charge a month in BTC
-    var monthlyPrice = parseFloat(results[0]) / parseFloat(results[1])
+    // Someone just has to keep the database up to date
+    var monthlyPrice = acceptor.fiatToBtc(parseFloat(results[0]), parseFloat(results[1]))
     
     // Send it out
     callback(null, monthlyPrice)
     
+  })
+}
+
+// Daemon function to keep the exchange rate up to date
+function checkExchangeRate() {
+  acceptor.getExchangeRate((err, exchange_rate) => {
+    if (err) {
+      // TODO: go into some kind of safe mode if we don't know how much anything is worth?
+      throw err
+    }
+    
+    console.log('New bitcoin price: ' + exchange_rate)
+    
+    setConfig("btcValue", exchange_rate, (err) => {
+      if (err) {
+        throw err
+      }
+      
+      // Check the price of BTC again in 5 minutes, because it'll change!
+      setTimeout(checkExchangeRate, 60 * 1000 * 5)
+    })
   })
 }
 
@@ -1081,17 +1104,10 @@ async.series([upgradeDatabase, setupDefaultConfig], (err) => {
     // Make sure to schedule our cron jobs
     setTimeout(pollAllPaymentRequests, 1)
     tunnelDaemonTimeout = setTimeout(tunnelDaemon, 1)
+    setTimeout(checkExchangeRate, 1)
   
     // Then tell the user
-    console.log('Example app listening on port 3000!')
-    
-    getMonthlyPrice((err, price) => {
-      if (err) {
-        throw err
-      }
-      console.log('Monthly price: ', price, ' BTC')
-    })
-    
+    console.log('ProjektVPN listening on port 3000!')
   })
 })
   
