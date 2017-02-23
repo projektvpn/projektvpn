@@ -866,8 +866,21 @@ function tunnelDaemon() {
     // Tunnels are synced
     tunnelDaemonTimeout = setTimeout(tunnelDaemon, 1000 * 60 * 5)
   })
+}
+
+// This function runs periodically to expire accounts. It just has to set them
+// inactive and their tunnels will go away.
+function expirationDaemon() {
+  c.query('UPDATE account SET active = FALSE WHERE paid_through < NOW()', (err, rows) => {
+    if (err) {
+      throw err
+    }
+    
+    // Otherwise, do nothing with the result
+  })
   
- 
+  // No need to do this very often
+  setTimeout(expirationDaemon, 1000 * 60 * 10)
 }
 
 // This function calls the callback with an error if the given key is not a
@@ -1121,6 +1134,7 @@ async.series([upgradeDatabase, setupDefaultConfig], (err) => {
     setTimeout(pollAllPaymentRequests, 1)
     tunnelDaemonTimeout = setTimeout(tunnelDaemon, 1)
     setTimeout(checkExchangeRate, 1)
+    setTimeout(expirationDaemon, 1)
   
     // Then tell the user
     console.log('ProjektVPN listening on port 3000!')
