@@ -4,6 +4,7 @@
   "dependencies": {
     "async": "^2.1.4",
     "bitcore-lib": "^0.13.19",
+    "body-parser": "^1.16.1",
     "cjdns-admin": "^0.2.0",
     "crypto": "0.0.3",
     "dotenv": "^4.0.0",

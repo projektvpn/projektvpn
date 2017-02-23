@@ -6,6 +6,7 @@ const async = require('async')
 
 const express = require('express')
 const expressHandlebars = require('express-handlebars')
+const bodyParser = require('body-parser')
 const bitcoinAcceptor = require('./bitcoinAcceptor')
 const cjdnsAdmin = require('cjdns-admin')
 const moment = require('moment')
@@ -18,6 +19,8 @@ const app = express()
 // Register '.hbs' extension with Handlebars
 app.engine('handlebars', expressHandlebars({defaultLayout: 'main'}));
 app.set( 'view engine', 'handlebars' );
+// Set up POST form parsing
+app.use(bodyParser.urlencoded({extended: false}))
 
 // Set up bitcoinAcceptor
 const acceptor = new bitcoinAcceptor(process.env.BTC_PAYTO, {
@@ -927,6 +930,13 @@ app.get('/about', function (req, res) {
   })
 })
 
+// And a nice signup page
+app.get('/signup', function (req, res) {
+  res.render('signup', {
+    title: 'Sign Up'
+  })
+})
+
 // Add a function to print the info for an account
 app.get('/account/:pubkey', function (req, res) {
   
@@ -1000,8 +1010,10 @@ app.post('/account/:pubkey/force_add_time', function (req, res) {
 })
 
 // Add a function to generate an invoice
-app.post('/account/:pubkey/invoice', function (req, res) {
-  var pubkey = req.params['pubkey']
+app.post(['/account/:pubkey/invoice', '/forms/invoice'], function (req, res) {
+  
+  // Handle both REST-ful and form-compatible routes
+  var pubkey = req.params['pubkey'] || req.body['pubkey']
 
   // Make sure it's a legit key
   parsePubkey(pubkey, (err, ip6) => {

@@ -13,14 +13,18 @@
       <div class="text-center">
         <h2>Payment Received!</h2>
         <p>Your account now expires at <b>{{account.paid_through}}{{^account.paid_through}}Not Paid Up!{{/account.paid_through}}</b></p>
-        <a role="button" class="btn btn-primary btn-lg" href="/account/{{account.pubkey}}">My Account</a>
+        <a role="button" class="btn btn-primary btn-lg btn-block" href="/account/{{account.pubkey}}">
+          <span class="glyphicon glyphicon-user" aria-hidden="true"></span> My Account
+        </a>
       </div>
     {{else}}
       <div class="text-center">
         <h2>Awaiting Payment</h2>
         <img src="https://chart.googleapis.com/chart?chs=200x200&cht=qr&chl=bitcoin:{{btcAddress}}?amount={{amount}}">
         <h4>{{amount}} BTC</h4>
-        <a role="button" class="btn btn-primary btn-lg" href="bitcoin:{{btcAddress}}?amount={{amount}}">Pay with Bitcoin</a>
+        <a role="button" class="btn btn-primary btn-lg btn-block" href="bitcoin:{{btcAddress}}?amount={{amount}}">
+          <span class="glyphicon glyphicon-bitcoin" aria-hidden="true"></span> Pay with Bitcoin
+        </a>
       </div>
 
       <script type='text/javascript'>

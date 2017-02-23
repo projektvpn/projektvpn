@@ -12,7 +12,7 @@
       <p>Active: {{#if account.active}}<span class="label label-success">Active</span>{{else}}<span class="label label-danger">Inactive</span>{{/if}}</p>
       <p>Paid through: {{account.paid_through}}{{^account.paid_through}}Not Paid Up!{{/account.paid_through}}</p>
       <form method="POST" action="/account/{{account.pubkey}}/invoice">
-        <input type="submit" class="btn btn-primary" value="Add Time">
+        <button type="submit" class="btn btn-primary btn-lg btn-block"><span class="glyphicon glyphicon-time"></span> Add Time</button>
       </form>
     </div>
   </div>
