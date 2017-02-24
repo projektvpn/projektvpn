@@ -3,13 +3,104 @@
 </div>
 <div class="row">
   <div class="col-lg-12">
+    <h2>Step 1: Install Client</h2>
+    <p>The first thing you need to do is install the VPN client software, cjdns.</p>
+    <a class="btn btn-primary" target="_blank" href="https://github.com/interfect/cjdns-installer/releases">
+      Windows
+    </a>
+    <a class="btn btn-primary" target="_blank" href="https://brianturchyn.net/installing-and-configuring-cjdns-on-ubuntu-linux/">
+      Ubuntu
+    </a>
+    <a class="btn btn-primary" target="_blank" href="https://github.com/cjdelisle/cjdns#how-to-install-cjdns">
+      Mac & Other Linux
+    </a>
+  </div>
+  <div class="col-lg-12">
+    <h2>Step 2: Configure Client</h2>
+    <p>Unfortunately the client configuration process is not yet automated. You will have to do a couple of manual steps.</p>
+    <p><strong>First</strong>, you will need to locate your <code>cjdroute.conf</code> file.</p>
+    <ul>
+      <li><strong>Windows</strong> puts it at <code>C:\Program Files (x86)\cjdns\cjdroute.conf</code>.</li>
+      <li><strong>Mac and Linux</strong> put it at <code>/etc/cjdroute.conf</code>.</li>
+    </ul>
+    <p>Find the file and open it up.</p>
+    
+    
+    <p><strong>Second</strong>, you will need to tell your client to connect to this server. Find the section that looks like this:</p>
+    <code><pre>
+                // Nodes to connect to (IPv4 only).
+                "connectTo":
+                {
+                    // Add connection credentials here to join the network
+                    // If you have several, don't forget the separating commas
+                    // They should look like:
+                    // "ipv4 address:port": {
+                    //     "login": "(optional) name your peer has for you"
+                    //     "password": "password to connect with",
+                    //     "publicKey": "remote node key.k",
+                    //     "peerName": "(optional) human-readable name for peer"
+                    // },
+                    // Ask somebody who is already connected.
+                }
+</pre></code>
+    <p>Make it look like this instead:</p>
+    <code><pre>
+                // Nodes to connect to (IPv4 only).
+                "connectTo":
+                {
+                    // Add connection credentials here to join the network
+                    // If you have several, don't forget the separating commas
+                    // They should look like:
+                    "{{public_peer_ip}}:{{public_peer_port}}": {
+                        "password": "{{public_peer_password}}",
+                        "publicKey": "{{server_pubkey}},
+                        "peerName": "ProjektVPN"
+                    }
+                }
+</pre></code>
+    <p>Also, find the section that looks like this:</p>
+    <code><pre>
+            "outgoingConnections":
+            [
+                // Connect to one or more machines and ask them for IP addresses.
+                // "6743gf5tw80ExampleExampleExampleExamplevlyb23zfnuzv0.k",
+                // "pw9tfmr8pcrExampleExampleExampleExample8rhg1pgwpwf80.k",
+                // "g91lxyxhq0kExampleExampleExampleExample6t0mknuhw75l0.k"
+            ]
+</pre></code>
+    <p>Make it look like this instead:</p>
+    <code><pre>
+            "outgoingConnections":
+            [
+                // Connect to one or more machines and ask them for IP addresses.
+                "{{server_pubkey}}"
+            ]
+</pre></code>
+    
+    <p><strong>Finally</strong>, you will need to find your cjdns public key. It will be near the top of the file, like this:
+    
+    <code><pre>{
+  // Private key:
+  // Your confidentiality and data integrity depend on this key, keep it secret!
+  "privateKey": "19c1aefde775ad5b8eaac314ed205f6d39cb50d3bd53019c58a81a8f951f4025",
+
+  // This key corresponds to the public key and ipv6 address:
+  "publicKey": "<strong>f50pgcb5pck7stqsbn8zsl5z0xx7cltt1dl9lv6f1flnklq96rw0.k</strong>",
+  "ipv6": "fc27:c3:e699:ce10:fdcf:15:ba07:58a9",
+  ...
+</pre></code>
+    <p>Copy your public key for the next step.</p>
+  </div>
+  <div class="col-lg-12">
+    <h2>Step 3: Purchase Access</h2>
+    Paste your public key into the form below and hit "Sign Up" to purchase a month of VPN access.
     <form method="POST" action="/forms/invoice">
+      <br>
       <div class="input-group">
-        <input type="text" class="form-control" placeholder="CJDNS Public Key" aria-label="CJDNS Public Key">
-        <div class="input-group-btn">
-          <button class="btn btn-default" type="button" aria-label="Help"><span class="glyphicon glyphicon-question-sign" aria-hidden="true"></span></button>
-        </div>
+        <input type="text" name="pubkey" class="form-control" placeholder="Public Key (f50pgcb5pck7stqsbn8zsl5z0xx7cltt1dl9lv6f1flnklq96rw0.k)" aria-label="Public Key" aria-describedby="key-help">
+        <span class="input-group-addon" id="key-help" title="Get this by installing the client above"><span class="glyphicon glyphicon-question-sign" aria-hidden="true"></span></span>
       </div>
+      <br>
       <button type="submit" class="btn btn-block btn-lg btn-success">
         <span class="glyphicon glyphicon-plus" aria-hidden="true"></span> Sign Up
       </button>

@@ -10,6 +10,7 @@ const bodyParser = require('body-parser')
 const bitcoinAcceptor = require('./bitcoinAcceptor')
 const cjdnsAdmin = require('cjdns-admin')
 const moment = require('moment')
+const externalIP = require('external-ip')();
 
 // Find our pubkey code stolen from cjdns
 const publicToIp6 = require('./publicToIp6')
@@ -496,9 +497,10 @@ function pollPaymentRequest(btcAddressRecord, callback) {
   })
 }
 
-// Poll all the payment requests.
+// Poll all the payment requests that are recent
+// Old ones stay in the DB but we don't waste time polling them.
 function pollAllPaymentRequests() {
-  c.query('SELECT * FROM btc_address WHERE received = FALSE', (err, rows) => {
+  c.query('SELECT * FROM btc_address WHERE received = FALSE AND requested > (NOW() - INTERVAL 7 DAY)', (err, rows) => {
     // TODO: only look at the ones that aren't too old.
     
     console.log('Polling ' + rows.length + ' invoices...')
@@ -933,7 +935,9 @@ app.get('/about', function (req, res) {
 // And a nice signup page
 app.get('/signup', function (req, res) {
   res.render('signup', {
-    title: 'Sign Up'
+    title: 'Sign Up',
+    server_pubkey: process.env.CJDNS_PUBKEY
+    // TODO: send IP and public peering info
   })
 })
 
@@ -947,7 +951,7 @@ app.get('/account/:pubkey', function (req, res) {
     
     if (err) {
       // It's not a valid key
-      return res.render('error', {message: 'Invalid public key'})
+      return res.render('error', {message: 'Invalid public key ' + pubkey})
     }
 
     // Otherwise it checks out, so try looking it up
@@ -986,7 +990,7 @@ app.post('/account/:pubkey/force_add_time', function (req, res) {
     
     if (err) {
       // It's not a valid key
-      return res.render('error', {message: 'Invalid public key'})
+      return res.render('error', {message: 'Invalid public key ' + pubkey})
     }
     
     // Otherwise, it's a valid key. We need to make an account
@@ -1014,13 +1018,15 @@ app.post(['/account/:pubkey/invoice', '/forms/invoice'], function (req, res) {
   
   // Handle both REST-ful and form-compatible routes
   var pubkey = req.params['pubkey'] || req.body['pubkey']
+  
+  console.log(req.body)
 
   // Make sure it's a legit key
   parsePubkey(pubkey, (err, ip6) => {
     
     if (err) {
       // It's not a valid key
-      return res.render('error', {message: 'Invalid public key'})
+      return res.render('error', {message: 'Invalid public key ' + pubkey})
     }
     
     // Otherwise, it's a valid key. We need to make an account
