@@ -20,7 +20,7 @@
     {{else}}
       <div class="text-center">
         <h2>Awaiting Payment</h2>
-        <img src="https://chart.googleapis.com/chart?chs=200x200&cht=qr&chl=bitcoin:{{btcAddress}}?amount={{amount}}">
+        <img class="qr" src="/qr/{{btcAddress}}">
         <h4>{{amount}} BTC</h4>
         <a role="button" class="btn btn-primary btn-lg btn-block" href="bitcoin:{{btcAddress}}?amount={{amount}}">
           <span class="glyphicon glyphicon-bitcoin" aria-hidden="true"></span> Pay with Bitcoin

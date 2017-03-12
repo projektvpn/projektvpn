@@ -10,6 +10,7 @@ const bodyParser = require('body-parser')
 const bitcoinAcceptor = require('./bitcoinAcceptor')
 const cjdnsAdmin = require('cjdns-admin')
 const moment = require('moment')
+const qrImage = require('qr-image')
 const externalIP = require('external-ip')();
 
 // Find our pubkey code stolen from cjdns
@@ -377,7 +378,7 @@ function addBtcAddress(account_id, key, expectedBtc, callback) {
 }
 
 // Given the BTC address of a payment request, return the record for that
-// payment request.
+// payment request, or null if there is no such record in the database.
 function getBtcAddress(address, callback) {
   c.query('SELECT * FROM btc_address WHERE address = ?;', [address], (err, rows) => {
     
@@ -386,7 +387,8 @@ function getBtcAddress(address, callback) {
     }
     
     if (rows.length == 0) {
-      return callback(new Error('No payment request with bitcoin address ' + address + ' found'))
+      // No error, but no record either.
+      return callback(null, null)
     } else {
       // Use the record we found
       return callback(null, rows[0])
@@ -1075,6 +1077,14 @@ app.get('/invoice/:address', function (req, res) {
       throw err
     }
 
+    if (!address_record) {
+      // No invoice exists under that address
+      return res.render('error', {
+        title: 'Error',
+        message: 'No invoice exists for the given address'
+      })
+    }
+
     // First we say how to send the page with a given record for the payment
     // request.
     var sendPage = (address_record) => {
@@ -1091,7 +1101,7 @@ app.get('/invoice/:address', function (req, res) {
     
         // Now that we can take payment, tell the client
         return res.render('invoice', {
-          title: "Invoice",
+          title: 'Invoice',
           account: account,
           amount: acceptor.satoshisToBtc(address_record.expected_payment),
           btcAddress: address,
@@ -1118,6 +1128,14 @@ app.get('/invoice/:address', function (req, res) {
             throw err
           }
           
+          if (!address_record) {
+            // No invoice exists under that address
+            return res.render('error', {
+              title: 'Error',
+              message: 'No invoice exists for the given address'
+            })
+          }
+          
           // Now actually send the page with the updated view of the database
           sendPage(address_record)
         })
@@ -1131,6 +1149,34 @@ app.get('/invoice/:address', function (req, res) {
     
   })
   
+})
+
+// And a QR code generator for invoices
+app.get('/qr/:address', function (req, res) {
+  
+  var address = req.params['address']
+
+  // Find the payment request for that address
+  getBtcAddress(address, (err, address_record) => {
+    if (err) {
+      throw err
+    }
+
+    res.type('svg')
+
+    if (address_record) {
+      // If there's an actual invoice, make a QR code for it
+      
+      // Where should the code point?
+      var btc_url = 'bitcoin:' + address + '?amount=' + acceptor.satoshisToBtc(address_record.expected_payment)
+      
+      // Make and send the SVG
+      var qr_stream = qrImage.image(btc_url, { type: 'svg' })
+      qr_stream.pipe(res)
+    }
+    
+    // If there's no invoice we send nothing
+  })
 })
 
 

@@ -44,4 +44,10 @@ body {
   }
 }
 
+/* Make QR codes not huge */
+.qr {
+  width: 200px;
+  height: 200px;
+}
+
 
