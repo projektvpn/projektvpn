@@ -9,7 +9,7 @@
     <div class="panel-body">
       <p>CJDNS Public Key: {{account.pubkey}}</p>
       <p>CJDNS IP: {{account.ip6}}</p>
-      <p>Active: {{#if account.active}}<span class="label label-success">Active</span>{{else}}<span class="label label-danger">Inactive</span>{{/if}}</p>
+      <p>Status: {{#if account.active}}<span class="label label-success">Active</span>{{else}}<span class="label label-danger">Inactive</span>{{/if}}</p>
       <p>Paid through: {{account.paid_through}}{{^account.paid_through}}Not Paid Up!{{/account.paid_through}}</p>
       <form method="POST" action="/account/{{account.pubkey}}/invoice">
         <button type="submit" class="btn btn-primary btn-lg btn-block"><span class="glyphicon glyphicon-time"></span> Add Time</button>
@@ -26,8 +26,9 @@
 
   {{/if}}
 
-  
-  <form method="POST" action="/account/{{account.pubkey}}/force_add_time">
-      <input type="submit" class="btn btn-danger" value="Force Add Time">
-  </form>
+  {{#if debug}}
+    <form method="POST" action="/account/{{account.pubkey}}/force_add_time">
+        <input type="submit" class="btn btn-danger" value="Force Add Time">
+    </form>
+  {{/if}}
 </div>

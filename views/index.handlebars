@@ -3,12 +3,20 @@
     <h1>ProjektVPN</h1>
     <h2>Anonymize Anonymously</h2>
     <p>Get VPN service from anonymous parties today!</p>
-    <a href="/signup" role="button" class="btn btn-lg btn-success">
-      <span class="glyphicon glyphicon-plus" aria-hidden="true"></span> Sign Up
+    <a href="/download" role="button" class="btn btn-lg btn-success">
+      <span class="glyphicon glyphicon-plus" aria-hidden="true"></span> Get ProjektVPN
     </a>
     <a href="/about" role="button" class="btn btn-lg btn-info">
       <span class="glyphicon glyphicon-question-sign" aria-hidden="true"></span> Learn More
     </a>
+  </div>
+</div>
+<div class="row">
+  <div class="col-lg-6">
+    <p><b>ProjektVPN</b> allows you to purchase anonymity services from anonymous ProjektVPN server operators. This makes it difficult for people to track you on the Internet, because the service provider they would need to go through to de-anonymize you is itself anonymous.</p>
+    {{#if debug}}
+        <a role="button" class="btn btn-danger" href="/account/hbz2w3vw8xq8xjk7nukgrh1b7rmkfmkp80zn5fw4suzpgq825860.k">Here is a link to an account by pubkey.</a>
+    {{/if}}
   </div>
   <div class="col-lg-6">
       <div class="panel panel-default">
@@ -17,12 +25,8 @@
         </div>
         <div class="panel-body">
           <p>Active accounts: {{active_accounts}}</p>
-          <p>Current price: {{price}} BTC per month</p>
+          <p>Monthly price: ${{fiat_price}} = {{price}} BTC</p>
         </div>
       </div>
-  </div>
-  <div class="col-lg-6">
-    <p><b>ProjektVPN</b> allows you to purchase anonymity services from anonymous ProjektVPN server operators. This makes it difficult for people to track you on the Internet, because the service provider they would need to go through to de-anonymize you is itself anonymous.</p>
-    <a role="button" class="btn btn-danger" href="/account/hbz2w3vw8xq8xjk7nukgrh1b7rmkfmkp80zn5fw4suzpgq825860.k">Here is a link to an account by pubkey.</a>
   </div>
 </div>

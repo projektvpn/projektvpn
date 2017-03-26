@@ -175,9 +175,9 @@ function setupDefaultConfig(callback) {
   console.log('Default any unset config values...')
   // Here are a bunch of defaults
   defaults = [
-    ["maxUsers", "100"],
-    ["servicePrice", "5"],
-    ["btcValue", "800"]
+    ['maxUsers', '100'],
+    ['servicePrice', '5'],
+    ['btcValue', '800']
   ]
   async.each(defaults, (pair, callback) => {
     // Apply each as a default if nothing is set
@@ -189,7 +189,7 @@ function setupDefaultConfig(callback) {
 function getMonthlyPrice(callback) {
 
   // Grab the service price and the value of bitcoins
-  async.map(["servicePrice", "btcValue"], getConfig, (err, results) => {
+  async.map(['servicePrice', 'btcValue'], getConfig, (err, results) => {
     if (err) {
       return callback(err)
     }
@@ -214,7 +214,7 @@ function checkExchangeRate() {
     
     console.log('New bitcoin price: ' + exchange_rate)
     
-    setConfig("btcValue", exchange_rate, (err) => {
+    setConfig('btcValue', exchange_rate, (err) => {
       if (err) {
         throw err
       }
@@ -513,10 +513,10 @@ function pollAllPaymentRequests() {
     }, (err) => {
       if (err) {
         // Something broke
-        throw err;
+        console.log('Polling error: ',  err);
+      } else {
+        console.log('Polled ' + rows.length + ' invoices successfully')
       }
-      
-      console.log('Polled ' + rows.length + ' invoices successfully')
       
       // Schedule this to happen again. We can do it relatively infrequently
       // here, and let client invoices poll faster.
@@ -912,15 +912,22 @@ app.get('/', function (req, res) {
       throw err
     }
     
-    getMonthlyPrice((err, price) => {
+    getConfig('servicePrice', (err, fiat_price) => {
       if (err) {
         throw err
       }
     
-      res.render('index', {
-        title: 'Index',
-        active_accounts: rows[0][0],
-        price: price
+      getMonthlyPrice((err, price) => {
+        if (err) {
+          throw err
+        }
+      
+        res.render('index', {
+          title: 'Index',
+          active_accounts: rows[0][0],
+          price: price,
+          fiat_price: fiat_price
+        })
       })
     })
   })
@@ -934,12 +941,16 @@ app.get('/about', function (req, res) {
   })
 })
 
-// And a nice signup page
-app.get('/signup', function (req, res) {
-  res.render('signup', {
-    title: 'Sign Up',
-    server_pubkey: process.env.CJDNS_PUBKEY
-    // TODO: send IP and public peering info
+// And a nice download page.
+app.get('/download', function (req, res) {
+  getConfig('servicePrice', (err, fiat_price) => {
+    if (err) {
+      throw err;
+    }
+    res.render('download', {
+      title: 'Get ProjektVPN',
+      fiat_price: fiat_price
+    })
   })
 })
 
@@ -987,12 +998,22 @@ app.get('/account/:pubkey', function (req, res) {
 app.post('/account/:pubkey/force_add_time', function (req, res) {
   var pubkey = req.params['pubkey']
 
+  if (process.env.BTC_NETWORK != 'test') {
+    return res.render('error', {
+      title: 'Error',
+      message: 'Debugging actions only available on testnet'
+    })
+  }
+
   // Make sure it's a legit key
   parsePubkey(pubkey, (err, ip6) => {
     
     if (err) {
       // It's not a valid key
-      return res.render('error', {message: 'Invalid public key ' + pubkey})
+      return res.render('error', {
+        title: 'Error',
+        message: 'Invalid public key ' + pubkey
+      })
     }
     
     // Otherwise, it's a valid key. We need to make an account
@@ -1118,8 +1139,11 @@ app.get('/invoice/:address', function (req, res) {
       console.log('Need to poll')
       pollPaymentRequest(address_record, (err) => {
         if (err) {
-          throw err
+          console.log('Error polling in response to user request: ', err)
         }
+        
+        // Continue along anyway in the event of an error: maybe Blockr is down
+        // or we hit our rate limit or something.
         
         // Then see what the database says again and shadow the old
         // address_record with the new one.

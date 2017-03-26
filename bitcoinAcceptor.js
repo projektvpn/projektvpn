@@ -1,9 +1,10 @@
 // bitcoinAcceptor.js: replacement for accept-bitcoin that actually works
 
-var extend = require('extend')
-var bitcore = require('bitcore-lib')
-var request = require('request')
-var async = require('async')
+const extend = require('extend')
+const bitcore = require('bitcore-lib')
+const request = require('request')
+const async = require('async')
+const limiter = require('limiter');
 
 //Public
 module.exports = BitcoinAcceptor;
@@ -22,8 +23,9 @@ function BitcoinAcceptor(destination, settings = {}) {
   this.settings = {
     network: 'test', // Can be 'test' or 'live'
     minimumConfirmations: 1,
-    fiatCurrency: 'USD' // Any supported by exchange rate source
+    fiatCurrency: 'USD', // Any supported by exchange rate source
     // Fee per KB is the Bitcore default
+    balanceChecksPerHour: 60 * 60
   }
   
   // Apply custom settings over defaults
@@ -43,6 +45,9 @@ function BitcoinAcceptor(destination, settings = {}) {
   } else {
     throw new Error('Invalid network: ' + this.settings.network)
   }
+  
+  // Start rate limiting
+  this.limiter = new limiter.RateLimiter(this.settings.balanceChecksPerHour, 'hour')
   
   // Save the address all funds go to, as a Bitcore parsed Address object
   this.destination = new bitcore.Address(destination, this.network)
@@ -188,34 +193,46 @@ BitcoinAcceptor.prototype.satoshisToBtc = function (satoshis) {
  */
 BitcoinAcceptor.prototype.getBalance = function (privkeyOrAddr, callback) {
   
-  // Parse the address
-  this.toAddress(privkeyOrAddr, (err, addrString) => {
+  // Log a request against our rate limit
+  this.limiter.removeTokens(1, (err, tokens_left) => {
     if (err) {
       return callback(err)
     }
     
-    // Make a request to the appropriate endpoint
-    var apiCall = '/address/balance/' + addrString + '?confirmations=' + this.settings.minimumConfirmations
-    request.get(this.apiBase + apiCall, (err, response, body) => {
+    if (tokens_left < 0) {
+      // Don't make requests faster than we're supposed to
+      return callback(new Error('Local balance check rate limit hit'))
+    }
+  
+    // Parse the address
+    this.toAddress(privkeyOrAddr, (err, addrString) => {
       if (err) {
         return callback(err)
       }
       
-      var balance;
-      
-      try {
-        // Parse the returned JSON
-        body = JSON.parse(body)
-        // Go look for the key we want
-        balance = body.data.balance
-      } catch (err) {
-        return callback(err)
-      }
-      
-      callback(null, balance);
-      
+      // Make a request to the appropriate endpoint
+      var apiCall = '/address/balance/' + addrString + '?confirmations=' + this.settings.minimumConfirmations
+      request.get(this.apiBase + apiCall, (err, response, body) => {
+        if (err) {
+          return callback(err)
+        }
+        
+        var balance;
+        
+        try {
+          // Parse the returned JSON
+          body = JSON.parse(body)
+          // Go look for the key we want
+          balance = body.data.balance
+        } catch (err) {
+          return callback(err)
+        }
+        
+        callback(null, balance);
+        
+      })
     })
-  })
+  }, true) // Make sure to fail to get tokens fast instead of waiting.
 }
 
 /**

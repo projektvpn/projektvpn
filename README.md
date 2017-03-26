@@ -7,6 +7,8 @@ ProjektVPN is a turnkey VPN server hosting solution. It runs on a VPN server whi
 
 Payment is accepted in bitcoin using the [Blockr API](http://blockr.io/documentation/api), and the actual VPN functionality is provided by [cjdns](https://github.com/cjdelisle/cjdns), using the [cjdns-admin npm module](https://github.com/tcrowe/cjdns-admin).
 
+This repository holds the server software. The client software is available in [projektvpn-client](https://github.com/projektvpn/projektvpn-client).
+
 ## Installation
 
 ```
@@ -42,8 +44,8 @@ DB_DATABASE=pvpn
 BTC_NETWORK=main
 BTC_PAYTO=1YourBtcAddressHere
 CJDNS_PUBKEY=yourServerCjdnsPubkeyHere.k
-CJDNS_ADDMIN_HOST=localhost
-CJDNS_ADDMIN_PORT=11234
+CJDNS_ADMIN_HOST=localhost
+CJDNS_ADMIN_PORT=11234
 CJDNS_ADMIN_PASS=yourServerCjdnsAdminPasswordHere
 ```
 
