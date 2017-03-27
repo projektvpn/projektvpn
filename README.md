@@ -19,6 +19,22 @@ cd projektvpn
 npm install
 ```
 
+###Set up cjdns:
+
+```
+sudo apt-get install mosh nano build-essential nodejs make git devscripts dh-systemd
+mkdir cjdns
+cd cjdns
+git clone https://github.com/cjdelisle/cjdns.git
+# Fix service files
+cd debian && echo "contrib/systemd/cjdns-resume.service /lib/systemd/system/" >> cjdns.install; cd ..
+# Fix systemctl path
+sed -i s_/usr/bin/systemctl_`which systemctl`_g contrib/systemd/cjdns-resume.service
+debuild
+cd ..
+sudo dpkg -i cjdns_0.17.1_amd64.deb
+```
+
 ###Set up MariaDB:
 
 ```
