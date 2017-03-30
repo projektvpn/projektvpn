@@ -43,7 +43,7 @@ function BitcoinAcceptor(destination, settings = {}) {
     // And the main net API URL
     this.apiBase = 'https://btc.blockr.io/api/v1'
   } else {
-    throw new Error('Invalid network: ' + this.settings.network)
+    throw new Error('Invalid network (not test or live): ' + this.settings.network)
   }
   
   // Start rate limiting

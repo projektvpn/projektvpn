@@ -12,6 +12,7 @@ This repository holds the server software. The client software is available in [
 ## Installation
 
 ```
+sudo apt-get install curl
 curl -sL https://deb.nodesource.com/setup_7.x | sudo -E bash -
 sudo apt-get install -y build-essential libczmq-dev mariadb-server nodejs 
 git clone https://github.com/projektvpn/projektvpn.git
@@ -57,7 +58,7 @@ DB_HOST=localhost
 DB_USER=pvpn
 DB_PASS=pvpn-password
 DB_DATABASE=pvpn
-BTC_NETWORK=main
+BTC_NETWORK=live
 BTC_PAYTO=1YourBtcAddressHere
 CJDNS_PUBKEY=yourServerCjdnsPubkeyHere.k
 CJDNS_ADMIN_HOST=localhost
@@ -95,6 +96,19 @@ EOF
 # Restart to apply settings
 sudo shutdown -r now
 ```
+
+### Run ProjektVPN
+
+You can run it manually in a screen for an easy, long-running server.
+
+```
+screen
+npm start
+```
+
+For running as a real server, you want something more robust.
+
+To change the listen port and bind address (default port 3000 on localhost) you currently have to edit the `index.js` file.
 
 ## Administration
 
