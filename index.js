@@ -1219,7 +1219,10 @@ async.series([upgradeDatabase, setupDefaultConfig], (err) => {
     throw err
   }
   // Then start the app
-  app.listen(3000, 'localhost', () => {
+  var bind_address = process.env.BIND_ADDRESS || 'localhost'
+  var bind_port = process.env.BIND_PORT || 3000
+  
+  app.listen(bind_port, bind_address, () => {
      
     // Make sure to schedule our cron jobs
     setTimeout(pollAllPaymentRequests, 1)
@@ -1228,7 +1231,7 @@ async.series([upgradeDatabase, setupDefaultConfig], (err) => {
     setTimeout(expirationDaemon, 1)
   
     // Then tell the user
-    console.log('ProjektVPN listening on port 3000!')
+    console.log('ProjektVPN listening on ', bind_address, ' port ', bind_port)
   })
 })
   

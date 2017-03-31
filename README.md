@@ -54,6 +54,8 @@ quit;
 Make a `.env` file with the database credentials, cjdns admin credentials, and bitcoin configuration:
 
 ```
+BIND_ADDRESS=::
+BIND_PORT=80
 DB_HOST=localhost
 DB_USER=pvpn
 DB_PASS=pvpn-password
@@ -66,7 +68,13 @@ CJDNS_ADMIN_PORT=11234
 CJDNS_ADMIN_PASS=yourServerCjdnsAdminPasswordHere
 ```
 
-The `DB_HOST` and `CJDNS_ADMIN_HOST` default to `localhost`, and the `CJDNS_ADMIN_PORT` defaults to `11234`.
+The `DB_HOST` and `CJDNS_ADMIN_HOST` default to `localhost`, and the `CJDNS_ADMIN_PORT` defaults to `11234`. The `BIND_ADDRESS` and `BIND_PORT` control where the server runs. They default to `localhost` port `3000`, but for production, without a proxy, you may want to set them to `::` and `80`.
+
+**Make sure to set the permissions** on the file to be readable only by user.
+
+```
+chmod 600 .env
+```
 
 ### Configure IP routing
 
@@ -120,3 +128,7 @@ To get a MariaDB connection:
 ```
 sudo mysql --defaults-file=/etc/mysql/debian.cnf
 ```
+
+## Troubleshooting
+
+Sometimes cjdns will try and route tunneled packets over links whose MTUs are too small for them. This can be fixed (hopefully) by peering the client directly with the server, or otherwise altering the meshnet route that the tunneled traffic is taking.
