@@ -77,6 +77,7 @@ By default, ProjektVPN creates a `10.27.75.0/24` subnet where it assigns client 
 echo 'net.ipv4.conf.default.forwarding=1' | sudo tee -a /etc/sysctl.conf
 
 # Configure the IP that your end of the TUN should have
+# On some systems you need to use /etc/network/interfaces.tail instead
 sudo tee -a /etc/network/interfaces <<EOF
 auto tun0
 iface tun0 inet static
@@ -87,6 +88,8 @@ iface tun0 inet static
 EOF
 
 # Set up NAT so all the VPN traffic comes out of this server's Internet IP
+# By default we have an "exit 0" we need to remove
+sudo sed '/exit 0/d' /etc/rc.local -i
 sudo tee -a /etc/rc.local <<EOF
 iptables --wait -t nat -A POSTROUTING -o eth0 -j MASQUERADE
 iptables --wait -A FORWARD -i eth0 -o tun0 -m state --state RELATED,ESTABLISHED -j ACCEPT
