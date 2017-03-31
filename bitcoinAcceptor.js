@@ -148,6 +148,7 @@ BitcoinAcceptor.prototype.getExchangeRate = function (callback) {
       // Go look for the rate we want (most recent exchange rate)
       rate = body[this.settings.fiatCurrency]['last']
     } catch (err) {
+      console.log('Error parsing exchange rate JSON: ', body)
       return callback(err)
     }
     

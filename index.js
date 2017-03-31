@@ -209,7 +209,10 @@ function checkExchangeRate() {
   acceptor.getExchangeRate((err, exchange_rate) => {
     if (err) {
       // TODO: go into some kind of safe mode if we don't know how much anything is worth?
-      throw err
+      
+      // Try again in 30 minutes
+      setTimeout(checkExchangeRate, 60 * 1000 * 30)
+      return
     }
     
     console.log('New bitcoin price: ' + exchange_rate)
@@ -219,8 +222,8 @@ function checkExchangeRate() {
         throw err
       }
       
-      // Check the price of BTC again in 5 minutes, because it'll change!
-      setTimeout(checkExchangeRate, 60 * 1000 * 5)
+      // Check the price of BTC again in 10 minutes, because it'll change!
+      setTimeout(checkExchangeRate, 60 * 1000 * 10)
     })
   })
 }
