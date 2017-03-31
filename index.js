@@ -785,8 +785,9 @@ function syncActiveTunnels(callback) {
               return callback(err)
             }
             
-            if (parseInt(record.active) != 1) {
-              // This account shouldn't be active
+            if (record.id != null && parseInt(record.active) != 1) {
+              // Tunnels with records that say they are inactive ought to be closed.
+              // Tunnels which have no account in the database are ignored; maybe they were manually set up.
               
               console.log('Tunnel ' + connection_number + ' for account ' +
                 record.id + ' ought not to be open. Closing...')
@@ -816,7 +817,7 @@ function syncActiveTunnels(callback) {
               })
               
             } else {
-              // This tunnel corresponds to an active account.
+              // This tunnel corresponds to an active account, or to no account..
 
               // Pass the key back so we can collate and find the accounts with
               // no tunnels yet.

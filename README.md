@@ -54,8 +54,6 @@ quit;
 Make a `.env` file with the database credentials, cjdns admin credentials, and bitcoin configuration:
 
 ```
-BIND_ADDRESS=::
-BIND_PORT=80
 DB_HOST=localhost
 DB_USER=pvpn
 DB_PASS=pvpn-password
@@ -68,13 +66,42 @@ CJDNS_ADMIN_PORT=11234
 CJDNS_ADMIN_PASS=yourServerCjdnsAdminPasswordHere
 ```
 
-The `DB_HOST` and `CJDNS_ADMIN_HOST` default to `localhost`, and the `CJDNS_ADMIN_PORT` defaults to `11234`. The `BIND_ADDRESS` and `BIND_PORT` control where the server runs. They default to `localhost` port `3000`, but for production, without a proxy, you may want to set them to `::` and `80`.
-
 **Make sure to set the permissions** on the file to be readable only by user.
 
 ```
 chmod 600 .env
 ```
+
+The `DB_HOST` and `CJDNS_ADMIN_HOST` default to `localhost`, and the `CJDNS_ADMIN_PORT` defaults to `11234`. The `BIND_ADDRESS` and `BIND_PORT` variables can be used to control where the server runs. They default to `localhost` port `3000`, but for production, without a proxy, you may want to set them to `::` and `80`.
+
+If you're going to directly bind port 80, and you're running as a normal user, you will need to allow nodejs to bind priviliged ports:
+
+```
+sudo setcap 'cap_net_bind_service=+ep' `which nodejs`
+```
+
+If you want to use Apache as a reverse proxy, you can do something like this:
+
+```
+sudo apt-get install apache2
+sudo tee /etc/apache2/sites-available/pvpn.conf <<EOF
+<VirtualHost *:80>
+ServerName projektvpn.com
+ServerAlias www.projektvpn.com
+DocumentRoot /var/www/html
+ErrorLog ${APACHE_LOG_DIR}/error.log
+CustomLog ${APACHE_LOG_DIR}/access.log combined
+ProxyRequests on
+ProxyPass / http://localhost:3000/
+</VirtualHost>
+EOF
+sudo a2enmod proxy
+sudo a2dissite 000-default
+sudo a2ensite pvpn
+sudo service apache2 restart
+```
+
+
 
 ### Configure IP routing
 
