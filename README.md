@@ -89,13 +89,16 @@ sudo tee /etc/apache2/sites-available/pvpn.conf <<EOF
 ServerName projektvpn.com
 ServerAlias www.projektvpn.com
 DocumentRoot /var/www/html
-ErrorLog ${APACHE_LOG_DIR}/error.log
-CustomLog ${APACHE_LOG_DIR}/access.log combined
-ProxyRequests on
+# Escape these from the shell
+ErrorLog \${APACHE_LOG_DIR}/error.log
+CustomLog \${APACHE_LOG_DIR}/access.log combined
+# Don't be a forward proxy
+ProxyRequests off
 ProxyPass / http://localhost:3000/
 </VirtualHost>
 EOF
 sudo a2enmod proxy
+sudo a2enmod proxy_http
 sudo a2dissite 000-default
 sudo a2ensite pvpn
 sudo service apache2 restart
