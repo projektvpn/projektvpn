@@ -119,7 +119,6 @@ npm start
 
 For running as a real server, you want something more robust.
 
-To change the listen port and bind address (default port 3000 on localhost) you currently have to edit the `index.js` file.
 
 ## Administration
 
@@ -131,4 +130,6 @@ sudo mysql --defaults-file=/etc/mysql/debian.cnf
 
 ## Troubleshooting
 
-Sometimes cjdns will try and route tunneled packets over links whose MTUs are too small for them. This can be fixed (hopefully) by peering the client directly with the server, or otherwise altering the meshnet route that the tunneled traffic is taking.
+Sometimes cjdns may try and route tunneled packets over links whose MTUs are too small for them. This can be fixed (hopefully) by peering the client directly with the server, or otherwise altering the meshnet route that the tunneled traffic is taking. Sometimes waiting for cjdns to find a better route and/or detect its link MTUs is enough.
+
+Sometimes you may not be able to send any traffic over the tunnel. If you restart the client cjdns, you won't get your IP reassigned, although the server will still respond to your pings on its cjdns IP. Restarting the server cjdns should fix the issue.
