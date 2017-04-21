@@ -1,7 +1,7 @@
 # projektvpn
 Meshnet-based VPN Hosting System
 
-**Under Construction!**
+[See ProjektVPN in Action!](http://projektvpn.com/)
 
 ProjektVPN is a turnkey VPN server hosting solution. It runs on a VPN server which forwards user traffic, and handles the collection of payment and the granting and revocation of access to users.
 
@@ -90,8 +90,11 @@ ServerName projektvpn.com
 ServerAlias www.projektvpn.com
 DocumentRoot /var/www/html
 # Escape these from the shell
-ErrorLog \${APACHE_LOG_DIR}/error.log
-CustomLog \${APACHE_LOG_DIR}/access.log combined
+#ErrorLog \${APACHE_LOG_DIR}/error.log
+#CustomLog \${APACHE_LOG_DIR}/access.log combined
+# For better privacy, don't log anything
+ErrorLog /dev/null
+CustomLog /dev/null combined
 # Don't be a forward proxy
 ProxyRequests off
 ProxyPass / http://localhost:3000/
@@ -103,8 +106,6 @@ sudo a2dissite 000-default
 sudo a2ensite pvpn
 sudo service apache2 restart
 ```
-
-
 
 ### Configure IP routing
 
@@ -136,6 +137,50 @@ EOF
 
 # Restart to apply settings
 sudo shutdown -r now
+```
+
+### Improve Privacy
+
+If you want to improve the privacy properties of your server, you can turn off some logging features. There's no sense leaving extra information laying around.
+
+/etc/pam.d/login (comment this out):
+```
+# Prints the last login info upon succesful login
+# (Replaces the `LASTLOG_ENAB' option from login.defs)
+#session    optional   pam_lastlog.so
+```
+
+/etc/login.defs (change to "no"):
+```
+#        
+# Enable logging and display of /var/log/faillog login failure info.
+# This option conflicts with the pam_tally PAM module.
+#        
+FAILLOG_ENAB            no
+```
+
+And run these commands:
+```
+# Delete bad login attempts
+sudo rm /var/log/btmp
+sudo ln -s /dev/null /var/log/btmp
+# Delete more bad login attempts
+sudo rm /var/log/faillog
+sudo ln -s /dev/null /var/log/faillog
+# Delete good logins
+sudo rm /var/log/wtmp
+sudo ln -s /dev/null /var/log/wtmp
+# Delete most recent logins
+sudo rm /var/log/lastlog
+sudo ln -s /dev/null /var/log/lastlog
+```
+
+It's also good practice to disable password authentication, **if you have set up ssh keys**.
+
+```
+sudo tee -a /etc/ssh/sshd_config <<EOF
+PasswordAuthentication no
+EOF
 ```
 
 ### Run ProjektVPN
