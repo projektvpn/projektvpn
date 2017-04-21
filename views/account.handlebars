@@ -9,8 +9,12 @@
     <div class="panel-body">
       <p>CJDNS Public Key: {{account.pubkey}}</p>
       <p>CJDNS IP: {{account.ip6}}</p>
-      <p>Status: {{#if account.active}}<span class="label label-success">Active</span>{{else}}<span class="label label-danger">Inactive</span>{{/if}}</p>
-      <p>Paid through: {{account.paid_through}}{{^account.paid_through}}Not Paid Up!{{/account.paid_through}}</p>
+      <p>Status: {{#if account.active == 1}}<span class="label label-success">Active</span>{{else}}<span class="label label-danger">Inactive</span>{{/if}}</p>
+      <p>Paid through: {{#if account.active == 1}}
+        {{account.paid_through}}
+      {{else}}
+        Not Paid Up!
+      {{/if}}</p>
       <form method="POST" action="/account/{{account.pubkey}}/invoice">
         <button type="submit" class="btn btn-primary btn-lg btn-block"><span class="glyphicon glyphicon-time"></span> Add Time</button>
       </form>
@@ -18,11 +22,34 @@
   </div>
   
 
-  {{#if account.active}}
-  <p>This account is <b>active</b>. If it is your account, you can connect by adding the following to the <code>"outgoingConnections"</code> array in the <code>"ipTunnel"</code> section of your <code>cjdroute.conf</code>:</p>
+  {{#if account.active == 1}}
+  <p>This account is <b>active</b>. If it is your account, you can connect using one of the methods below:
+  
+  <h4>Automatic Configuration</h4>
+  <p>Download the <a href="/download">ProjektVPN Client</a> and let it configure cjdns for you.</p>
+  
+  <h4>Manual Configuration</h4>
+  <p>Add the following to the <code>"outgoingConnections"</code> array in the <code>"ipTunnel"</code> section of your <code>cjdroute.conf</code>:</p>
 
   <pre><code>// ProjektVPN tunnel for {{account.ip4}}
-"{{server_pubkey}}",</code></pre>
+"{{server_pubkey}}"</code></pre>
+
+  <p>Overall, the section should look like this:</p>
+  <pre><code>        "ipTunnel":
+        {
+            "allowedConnections":
+            [
+            ],
+            "outgoingConnections":
+            [
+                // ProjektVPN tunnel for {{account.ip4}}
+                "{{server_pubkey}}"
+            ]
+        },
+</code></pre>
+
+  <h4>Troubleshooting</h4>
+  <p>The most common problem connecting to ProjektVPN is the lack of a cjdns installation. Make sure to <a href="https://github.com/cjdelisle/cjdns#how-to-install-cjdns">download and install cjdns</a>.
 
   {{/if}}
 
