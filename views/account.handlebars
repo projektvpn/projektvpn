@@ -9,8 +9,8 @@
     <div class="panel-body">
       <p>CJDNS Public Key: {{account.pubkey}}</p>
       <p>CJDNS IP: {{account.ip6}}</p>
-      <p>Status: {{#if account.active == 1}}<span class="label label-success">Active</span>{{else}}<span class="label label-danger">Inactive</span>{{/if}}</p>
-      <p>Paid through: {{#if account.active == 1}}
+      <p>Status: {{#if account.active}}<span class="label label-success">Active</span>{{else}}<span class="label label-danger">Inactive</span>{{/if}}</p>
+      <p>Paid through: {{#if account.active}}
         {{account.paid_through}}
       {{else}}
         Not Paid Up!
@@ -22,7 +22,7 @@
   </div>
   
 
-  {{#if account.active == 1}}
+  {{#if account.active}}
   <p>This account is <b>active</b>. If it is your account, you can connect using one of the methods below:
   
   <h4>Automatic Configuration</h4>

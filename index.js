@@ -986,6 +986,10 @@ app.get('/account/:pubkey', function (req, res) {
         // And the tunnel IP4 we assigned it
         record['ip4'] = ip4
         
+        // Make the active flag a proper bool, because Handlebars thinks
+        // {{#if 0}} is true
+        record['active'] = (parseInt(record['active']) == 1)
+        
         // Render a page about the account
         res.render('account', {
           account: record,
